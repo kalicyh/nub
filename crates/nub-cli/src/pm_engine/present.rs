@@ -199,9 +199,11 @@ pub(crate) fn rewrite(text: &str) -> String {
 /// another tool's docs is the leak this module exists to stop.
 const ENGINE_DOC_HOST: &str = "aube.jdx.dev";
 
-/// Remove engine-doc URL tokens from one line. Returns `None` when the line
-/// should be dropped entirely (nothing left but whitespace, or a dangling
-/// label such as `Details:` that only existed to introduce the URL).
+/// Remove engine-doc URL tokens from one line. A one-word introductory
+/// label (`Details:`, `See:`) immediately before a stripped URL is removed
+/// with it, whether the URL sits on its own line or inline mid-sentence.
+/// Returns `None` when the whole line reduces to nothing but whitespace or a
+/// dangling label that only existed to introduce the URL.
 fn strip_engine_urls(line: &str) -> Option<String> {
     if !line.contains(ENGINE_DOC_HOST) {
         return Some(line.to_string());
@@ -210,7 +212,7 @@ fn strip_engine_urls(line: &str) -> Option<String> {
     while let Some(at) = s.find(ENGINE_DOC_HOST) {
         // Expand to the whole whitespace-delimited token (catches the
         // https:// prefix and any path suffix).
-        let start = s[..at]
+        let mut start = s[..at]
             .rfind(char::is_whitespace)
             .map(|i| i + char::len_utf8(s[i..].chars().next().unwrap_or(' ')))
             .unwrap_or(0);
@@ -218,7 +220,29 @@ fn strip_engine_urls(line: &str) -> Option<String> {
             .find(char::is_whitespace)
             .map(|i| at + i)
             .unwrap_or(s.len());
-        s.replace_range(start..end, "");
+        // Also drop a one-word introductory label that only existed to
+        // announce the URL (`Details: <url>`, `See: <url>`) and collapse the
+        // gap it leaves. Without this, stripping an *inline* URL leaves a
+        // dangling `Details: ` mid-line — the whole-line drop below only
+        // fires when the label sits alone on its own line, which the
+        // engine's single-line `tracing::warn!` messages (e.g. the
+        // GVS-incompatible warning) never do.
+        let before = s[..start].trim_end();
+        let label_start = before.rfind(char::is_whitespace).map_or(0, |i| i + 1);
+        let label = &before[label_start..];
+        if label.ends_with(':') && !label[..label.len() - 1].contains(char::is_whitespace) {
+            // Take the label and the run of whitespace before it too, so the
+            // surrounding sentence closes up cleanly.
+            start = s[..label_start].trim_end().len();
+            let suffix = s[end..].trim_start();
+            s = if start == 0 {
+                suffix.to_string()
+            } else {
+                format!("{} {suffix}", &s[..start])
+            };
+        } else {
+            s.replace_range(start..end, "");
+        }
     }
     let trimmed = s.trim();
     if trimmed.is_empty() || trimmed.ends_with(':') {
@@ -345,6 +369,34 @@ mod tests {
         // Inline URL: only the token goes, the sentence stays.
         let inline = rewrite("see https://aube.jdx.dev/cli for flags");
         assert_eq!(inline, "see  for flags");
+    }
+
+    #[test]
+    fn drops_inline_details_label_when_its_url_is_stripped() {
+        // The live shape of the GVS-incompatible warning: the engine emits
+        // it as one `tracing::warn!` line, so the `Details:` label and the
+        // doc URL it introduces sit *inline*, and the warning layer appends
+        // ` code=…` after them (log.rs). Stripping only the URL token left a
+        // dangling `Details: ` mid-line — the exact leak seen on every
+        // vite/next install. The introductory label must go with its URL.
+        let line = "WARN `vite` isn't compatible with nub's global virtual \
+                    store — installing per-project instead. To silence, run \
+                    `nub config set enableGlobalVirtualStore false`. \
+                    Details: https://aube.jdx.dev/package-manager/global-virtual-store \
+                    code=WARN_NUB_GVS_INCOMPATIBLE";
+        let out = rewrite(line);
+        assert!(!out.contains("aube.jdx.dev"), "{out}");
+        assert!(
+            !out.contains("Details:"),
+            "inline label introducing a stripped URL must drop: {out}"
+        );
+        // The substantive sentence and the trailing code field survive.
+        assert!(out.contains("installing per-project instead"), "{out}");
+        assert!(out.contains("code=WARN_NUB_GVS_INCOMPATIBLE"), "{out}");
+        assert!(
+            !out.contains("  "),
+            "no double-space gap left behind: {out}"
+        );
     }
 
     #[test]
