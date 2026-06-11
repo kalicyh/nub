@@ -931,8 +931,7 @@ fn coverage_active_for_cache(
     node_options: Option<&str>,
     node_v8_coverage: Option<&str>,
 ) -> bool {
-    coverage_active(user_args, node_options)
-        || node_v8_coverage.is_some_and(|v| !v.is_empty())
+    coverage_active(user_args, node_options) || node_v8_coverage.is_some_and(|v| !v.is_empty())
 }
 
 /// The `--test-coverage-exclude=<glob>` flag nub injects to keep its own preloaded
@@ -1867,7 +1866,11 @@ mod tests {
         // and a user-set NODE_COMPILE_CACHE is intentionally not consulted here —
         // its preservation is the caller's concern, not this gate's.
         assert!(!coverage_active_for_cache(&plain_argv, None, None));
-        assert!(!coverage_active_for_cache(&plain_argv, Some("--enable-source-maps"), None));
+        assert!(!coverage_active_for_cache(
+            &plain_argv,
+            Some("--enable-source-maps"),
+            None
+        ));
         assert!(!coverage_active_for_cache(&plain_argv, None, Some("")));
     }
 
