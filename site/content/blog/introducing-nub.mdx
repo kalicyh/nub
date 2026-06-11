@@ -278,9 +278,7 @@ The brand stops at the binary boundary. Everything Nub ships is a web platform s
 
 ## `nub watch` — built-in watch mode
 
-The watch set is the resolved dependency graph of your entry file, plus the files that invalidate the process without appearing in it: the `tsconfig.json` chain (with `extends`), your `.env*` files, and `package.json`. Build outputs and coverage artifacts never enter the watch set — there is no glob list to maintain.
-
-The engine underneath is Node's own `--watch`. Nub's preload reports every file the load hook touches — including `.ts` files transpiled in memory, which Node never sees on disk — to Node's watcher over its dependency-report IPC channel. That report is what makes `--watch` work for TypeScript at all.
+Restart on change — driven by the actual dependency graph, not a glob list:
 
 ```sh
 $ nub watch src/server.ts
@@ -290,23 +288,19 @@ Listening on http://localhost:3000
 Listening on http://localhost:3000
 ```
 
+The watch set is the resolved dependency graph of your entry file, plus the files that invalidate the process without appearing in it: the `tsconfig.json` chain (with `extends`), your `.env*` files, and `package.json`. Build outputs and coverage artifacts never enter the watch set — there is nothing to configure.
+
+The engine underneath is Node's own `--watch`. Nub's preload reports every file the load hook touches — including `.ts` files transpiled in memory, which Node never sees on disk — to Node's watcher over its dependency-report IPC channel. That report is what makes `--watch` work for TypeScript at all.
+
 ## `nub run` — an 18× faster `pnpm run`
 
-A drop-in replacement for `npm run` and `pnpm run` — an order of magnitude faster on the cold path, with the full surface preserved:
-
-- **`npm_*` env vars** — set, like your scripts expect
-- **`node_modules/.bin` resolution** — member's `.bin` first, then workspace root, then ancestors; matches pnpm/yarn/bun in monorepos
-- **`pre<x>` / `post<x>` lifecycle hooks** — run for arbitrary user scripts
-- **`.npmrc#script-shell`** — honored (the only `.npmrc` key the script runner reads)
-
-Trailing flags pass through to the script without a `--` separator, same as `bun run`:
+A drop-in replacement for `npm run` and `pnpm run`, minus the ~150 ms Node bootstrap they pay on every invocation:
 
 ```sh
-$ nub run test --watch      # --watch reaches the script
-$ pnpm run test -- --watch  # what you'd type today
+$ nub run dev           # any package.json script
+$ nub run test --watch  # trailing flags pass through — no -- separator
+$ nub -r run build      # every workspace package, topo-ordered
 ```
-
-> Node 22 shipped its own script runner, `node --run` — roughly 6× faster than `npm run` per Node's own benchmarks, but deliberately stripped down (no lifecycle hooks, no `npm_*` env vars, no workspaces) in ways that break most real projects.
 
 ### Performance
 
@@ -354,6 +348,12 @@ nub -r --no-bail test             # keep going past failures
 nub -r --workspace-concurrency 4 build   # cap parallel jobs
 ```
 
+### Drop-in compatible
+
+Everything your scripts depend on still works: the `npm_*` env vars, `pre` / `post` lifecycle hooks, and pnpm-style `node_modules/.bin` resolution in monorepos. `.npmrc#script-shell` is honored.
+
+> Node 22 shipped its own script runner, `node --run` — roughly 6× faster than `npm run` per Node's own benchmarks, but deliberately stripped down (no lifecycle hooks, no `npm_*` env vars, no workspaces) in ways that break most real projects.
+
 ### Subprocesses inherit augmentation
 
 When `nub run` executes a script, `nub` is aliased as `node` for the duration — so spawned subprocesses (say, a CLI with a `node` shebang) get the augmentation too. `--node` turns this off:
@@ -364,7 +364,7 @@ nub run --node test
 
 ## `nubx` — a 20× faster `npx`
 
-Any dependency can ship a CLI via the `"bin"` field in its `package.json`; package managers copy these into `node_modules/.bin`. Nub resolves and runs them regardless of which package manager installed them — the `.bin` walk-up happens in Rust and the binary is exec'd directly, no Node bootstrap in the wrapper. The binary being executed is identical on both sides; the entire delta is the wrapper overhead in the [benchmarks](#performance) above.
+Run any CLI your dependencies ship into `node_modules/.bin`, no matter which package manager put it there:
 
 ```sh
 nubx eslint .
@@ -372,13 +372,11 @@ nubx prisma generate
 nubx tsc --noEmit
 ```
 
+The `.bin` walk-up happens in Rust and the binary is exec'd directly — no Node bootstrap in the wrapper. The binary being executed is identical on both sides; the entire delta is the wrapper overhead in the [benchmarks](#performance) above.
+
 ## `nub install` — a built-in package manager
 
-Nub ships a full package manager, powered by the embedded aube engine — built in partnership with jdx. The CLI surface is pnpm's; the lockfile is whatever your project already uses.
-
-There's no migration. `nub install` detects the lockfile your project already has — npm, pnpm, or bun — and writes the same format back, never a foreign file (`yarn.lock` is honored read-only rather than rewritten). Fresh projects get a standard `pnpm-lock.yaml`.
-
-Your package manager keeps working, side by side: run either tool, commit the same file, switch back any time.
+Nub ships a full package manager, powered by the embedded [aube](https://github.com/jdx/aube) engine — built in partnership with [jdx](https://github.com/jdx). The CLI surface is pnpm's; the lockfile is whatever your project already uses:
 
 ```sh
 $ nub install   # pnpm-lock.yaml → read, written back
@@ -386,6 +384,8 @@ $ nub install   # package-lock.json → read, written back
 $ nub install   # bun.lock → read, written back
 $ nub install   # yarn.lock → honored read-only
 ```
+
+There's no migration. `nub install` detects the lockfile your project already has — npm, pnpm, or bun — and writes the same format back, never a foreign file (`yarn.lock` is read-only: an install that would rewrite it is refused, with the exact yarn command to run instead). Fresh projects get a standard `pnpm-lock.yaml`. And your package manager keeps working, side by side: run either tool, commit the same file, switch back any time.
 
 The install layout follows the lockfile too. pnpm projects and fresh ones get strict, symlinked, pnpm-style installs, with the virtual store tucked under `node_modules/.nub`; projects with an npm, yarn, or bun lockfile default to the flat hoisted layout those tools produce — nothing about your tree surprises the code that walks it. One `.npmrc` line (`node-linker`) overrides either default.
 
