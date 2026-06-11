@@ -874,6 +874,92 @@ fn node_compat_flag_disables_augmentation() {
     );
 }
 
+/// Web Storage is default-on with a workspace-keyed, PERSISTENT backing file:
+/// `localStorage.setItem` in one `nub` invocation is readable by the next, and the
+/// SQLite store lands under `<cache>/nub/webstorage/<hash>/localstorage.sqlite`.
+/// `--node` runs vanilla Node, where `localStorage` is undefined (no injection).
+/// The dev-box PATH Node is 25+, where the global is native but still requires the
+/// `--localstorage-file` nub injects — so this proves the file is what makes it work.
+#[test]
+fn webstorage_persists_across_runs_and_is_off_under_node_flag() {
+    let dir = std::env::temp_dir().join(format!("nub-ws-itest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("package.json"), r#"{"name":"ws-test"}"#).unwrap();
+    let cache = dir.join("cache");
+
+    std::fs::write(
+        dir.join("set.js"),
+        "localStorage.setItem('token', 'abc123'); console.log('SET_OK');",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("get.js"),
+        "console.log('GOT:' + (localStorage.getItem('token') ?? 'MISSING'));",
+    )
+    .unwrap();
+    // Under --node, localStorage must be undefined (no augmentation). Guarded so the
+    // script can't throw before printing its verdict.
+    std::fs::write(
+        dir.join("probe.js"),
+        "console.log('TYPEOF:' + typeof globalThis.localStorage);",
+    )
+    .unwrap();
+
+    let run = |args: &[&str]| {
+        let out = Command::new(nub_binary())
+            .args(args)
+            .current_dir(&dir)
+            .env("XDG_CACHE_HOME", &cache)
+            .output()
+            .expect("failed to spawn nub");
+        (
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+            out.status.code().unwrap_or(-1),
+        )
+    };
+
+    // Run 1: write a value. Run 2 (separate process): read it back.
+    let (set_out, set_err, set_code) = run(&["set.js"]);
+    assert_eq!(set_code, 0, "set run failed: stderr={set_err}\nstdout={set_out}");
+    assert!(set_out.contains("SET_OK"), "set run stdout: {set_out:?} stderr: {set_err:?}");
+
+    let (get_out, get_err, get_code) = run(&["get.js"]);
+    assert_eq!(get_code, 0, "get run failed: stderr={get_err}\nstdout={get_out}");
+    assert!(
+        get_out.contains("GOT:abc123"),
+        "value must persist across invocations; got stdout: {get_out:?} stderr: {get_err:?}"
+    );
+
+    // The store landed under <cache>/nub/webstorage/<hash>/localstorage.sqlite.
+    let ws_root = cache.join("nub").join("webstorage");
+    let hash_dirs: Vec<_> = std::fs::read_dir(&ws_root)
+        .unwrap_or_else(|e| panic!("webstorage dir {ws_root:?} not created: {e}"))
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(hash_dirs.len(), 1, "exactly one workspace hash dir expected");
+    let sqlite = hash_dirs[0].path().join("localstorage.sqlite");
+    assert!(sqlite.is_file(), "SQLite store must exist at {sqlite:?}");
+    // It's a real SQLite database, not an empty placeholder.
+    let header = std::fs::read(&sqlite).unwrap();
+    assert!(
+        header.starts_with(b"SQLite format 3\0"),
+        "store must be a SQLite file; got header {:?}",
+        &header.get(..16)
+    );
+
+    // --node: vanilla Node, no injected --localstorage-file → localStorage undefined.
+    let (probe_out, probe_err, probe_code) = run(&["--node", "probe.js"]);
+    assert_eq!(probe_code, 0, "--node probe failed: stderr={probe_err}");
+    assert!(
+        probe_out.contains("TYPEOF:undefined"),
+        "`--node` must NOT inject webstorage; got {probe_out:?} stderr: {probe_err:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Workspace topological ordering: core (no deps) before utils (depends
 /// on core) before app (depends on utils).
 #[test]
