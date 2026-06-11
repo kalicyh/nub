@@ -104,7 +104,7 @@ const PIECES: {
     lines: [
       { cmd: 'echo 26 > .node-version' },
       { cmd: 'nub hello.ts' },
-      { out: 'Installing Node 26 from nodejs.org…' },
+      { out: '✓ Installed Node 26.3.0 in 6.8s' },
       { out: 'Hello world!' },
     ],
   },

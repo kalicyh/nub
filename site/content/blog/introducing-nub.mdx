@@ -45,7 +45,7 @@ The "next-generation" runtimes share a fundamental flaw: **they're trying to rep
 - **A bin runner** — `nubx prisma generate`. An order of magnitude faster than `npx`.
 - **A watcher** — `nub watch`. The dependency graph drives the watch set; no globs to maintain.
 - **A Node version manager** — `nub node install 26`. Reads your `.node-version`, installs on demand.
-- **A package manager** — `nub install`. pnpm-compatible, keeps the lockfile you already have.
+- **A package manager** — `nub install`. pnpm's CLI surface, lockfile-compatible with any project — npm, pnpm, or bun.
 
 ## `nub <file>` — a TypeScript-first Node.js
 
@@ -158,6 +158,27 @@ DATABASE_URL=postgres://localhost/${APP}_dev
 
 # No dotenv. No cross-env. No import "dotenv/config".
 $ nub server.ts
+```
+
+### `nub node` — a version manager you should never need
+
+Nub resolves the right Node for every project implicitly — from `.node-version`, `.nvmrc`, or `package.json#engines` — every time it runs a file. If that version isn't installed, it's downloaded from nodejs.org (checksum-verified, cached under `~/.cache/nub`) and your code runs on it in the same breath. No pin? The `node` on your `PATH` is used, however you manage it. It's the [uv](https://docs.astral.sh/uv/) experience, for Node.
+
+```sh
+$ echo 26 > .node-version
+$ nub hello.ts
+Installing Node 26.3.0 from nodejs.org (29 MB) — resolved from .node-version (26)...
+✓ Installed Node 26.3.0 in 6.8s
+Hello world!
+```
+
+For the rare day you want manual control, the explicit commands exist — no shell hooks, no `PATH` munging:
+
+```sh
+nub node install 26     # install a version
+nub node ls             # what's installed
+nub node pin 26         # write .node-version
+nub node uninstall 22   # remove a version
 ```
 
 ## Modern APIs
@@ -351,31 +372,11 @@ nubx prisma generate
 nubx tsc --noEmit
 ```
 
-## `nub node` — a Node version manager you should never need
-
-Nub manages Node versions the way it manages everything else: implicitly. Every time it runs a file, it resolves the right Node for the project — from `.node-version`, `.nvmrc`, or `package.json#engines` — and if that version isn't installed, it's downloaded from nodejs.org (checksum-verified, cached under `~/.cache/nub`) and your code runs on it in the same breath. No `nvm use`, no prompt, no second step: the pin file *is* the consent. It's the [uv](https://docs.astral.sh/uv/) experience, for Node.
-
-```sh
-$ echo 26 > .node-version
-$ nub hello.ts
-Installing Node 26 from nodejs.org…
-Hello world!
-```
-
-No pin? Nub runs the `node` already on your `PATH`, however you manage it — `nvm`, `mise`, `fnm`, `brew`. And for the rare day you want manual control, the explicit commands exist — no shell hooks, no `PATH` munging:
-
-```sh
-nub node install 26     # install a version
-nub node ls             # what's installed
-nub node pin 26         # write .node-version
-nub node uninstall 22   # remove a version
-```
-
 ## `nub install` — a built-in package manager
 
-Nub ships a pnpm-compatible package manager, powered by the embedded aube engine — built in partnership with jdx.
+Nub ships a full package manager, powered by the embedded aube engine — built in partnership with jdx. The CLI surface is pnpm's; the lockfile is whatever your project already uses.
 
-There's no migration. `nub install` detects the lockfile your project already has and writes the same format back — never a foreign file, and `yarn.lock` is honored read-only rather than rewritten. Fresh projects get a standard `pnpm-lock.yaml`.
+There's no migration. `nub install` detects the lockfile your project already has — npm, pnpm, or bun — and writes the same format back, never a foreign file (`yarn.lock` is honored read-only rather than rewritten). Fresh projects get a standard `pnpm-lock.yaml`.
 
 Your package manager keeps working, side by side: run either tool, commit the same file, switch back any time.
 
@@ -427,17 +428,20 @@ That's the whole kit. No patched Node binary, no vendored `libnode`, no separate
 
 Transpile output lands in a content-addressed on-disk cache keyed on `(source content, Nub version, resolved tsconfig)`. The first run transpiles; every run after pays roughly nothing, and entries dedupe across projects with identical files.
 
-### What npm packages can I drop?
+### What can I drop from my project?
 
-Nub replaces directly:
+Most of the toolchain around your code — including the pieces that were never npm packages to begin with:
 
-- `tsx` / `ts-node` → native TypeScript via oxc
-- `dotenv` / `cross-env` → built-in `.env*` loading with expansion
+- `tsx` / `ts-node` → TypeScript runs natively
+- `dotenv` / `cross-env` → `.env*` loading is built in
 - `nodemon` → `nub watch`
-- `tsconfig-paths` → native `paths` resolution
+- `tsconfig-paths` → `paths` resolution is built in
 - `npx` → `nubx`
+- `nvm` / `fnm` → the pin file alone; the right Node installs itself
+- `corepack` → `nub pm`
+- `npm` / `pnpm` / `bun` as CLIs → `nub install` and `nub run`, against the lockfile you already have
 
-And running on a modern Node floor lets you drop what Node already obsoleted: `node-fetch`, `abort-controller`, `uuid` (the v4 case), `rimraf`, `mkdirp`, `glob` (basic usage), `form-data`, and the `ws` client. That credit is Node's — Nub just makes the modern floor practical.
+And running on a modern Node floor lets you drop what Node itself obsoleted: `node-fetch`, `abort-controller`, `uuid` (the v4 case), `rimraf`, `mkdirp`, `glob` (basic usage), `form-data`, and the `ws` client. That credit is Node's — Nub just makes the modern floor practical.
 
 ### Why not just use Node's built-in TypeScript support?
 

@@ -608,8 +608,8 @@ function NodeVersionBand() {
               <Terminal
                 lines={[
                   { cmd: 'nub node which' },
-                  { out: '~/.nub/node/26.2.0/bin/node' },
-                  { out: '» resolved from package.json#engines (>=26)' },
+                  { out: '~/.cache/nub/node/26.3.0/bin/node' },
+                  { out: '» resolved from package.json#engines.node (>=26)' },
                 ]}
               />
             }
@@ -632,7 +632,8 @@ function NodeVersionBand() {
                 lines={[
                   { cmd: 'echo 26 > .node-version' },
                   { cmd: 'nub hello.ts' },
-                  { out: 'Installing Node 26 from nodejs.org…' },
+                  { out: 'Installing Node 26.3.0 from nodejs.org (29 MB) — resolved from .node-version (26)...' },
+                  { out: '✓ Installed Node 26.3.0 in 6.8s' },
                   { out: 'Hello world!' },
                 ]}
               />
