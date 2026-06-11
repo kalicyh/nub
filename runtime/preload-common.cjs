@@ -689,7 +689,22 @@ function reenableUserCompileCache() {
   // user who expects an unrelated grandchild to keep caching while a parent collects
   // coverage. Documented here and at the spawn.rs coverage branch (judgment call (a)).
   if (coverageActiveInProcess()) {
-    process.env.NODE_DISABLE_COMPILE_CACHE = "1";
+    const dir = process.env.NODE_COMPILE_CACHE;
+    if (!dir || dir === "0") {
+      // No explicit cache: keep coverage precise by disabling nub's default
+      // subtree-wide (the only mechanism that reaches the test runner's isolated
+      // coverage child, which boots its cache before any preload gate can fire).
+      process.env.NODE_DISABLE_COMPILE_CACHE = "1";
+      return;
+    }
+    // Explicit NODE_COMPILE_CACHE present: the user's choice wins over coverage
+    // precision (the maintainer, 2026-06-11) — same tradeoff they'd have on plain node.
+    // Narrow accepted caveat: a nub-DEFAULT dir restored from the sentinel is
+    // indistinguishable from a user dir here; that combination is reachable only
+    // when coverage is invisible to nub's own spawn (e.g. a c8-style grandchild
+    // setting NODE_V8_COVERAGE itself). Simple + documented beats provenance
+    // plumbing through the sentinel.
+    try { module_.enableCompileCache(dir); } catch {}
     return;
   }
   const dir = process.env.NODE_COMPILE_CACHE;

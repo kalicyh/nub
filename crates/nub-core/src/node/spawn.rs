@@ -393,31 +393,27 @@ pub fn spawn_node(config: &SpawnConfig<'_>) -> Result<SpawnResult> {
             node_options.as_deref(),
             node_v8_coverage.as_deref(),
         );
-        if coverage {
-            // Make sure nothing turns the cache back on for this run: drop any
-            // inherited NODE_COMPILE_CACHE from the child env and write no sentinel,
-            // so the preload's restore finds nothing and never re-enables.
-            //
-            // INTENTIONAL COVERAGE JUDGMENT CALL (a): this drops a user's EXPLICIT
-            // NODE_COMPILE_CACHE for the duration of the coverage run, not just nub's
-            // default-on cache. A warm V8 compile cache collapses/omits per-branch
-            // coverage ranges, so honoring the user's cache here would silently inflate
-            // their `--experimental-test-coverage` / NODE_V8_COVERAGE percentages vs
-            // plain node. We choose coverage PRECISION over their cache for the span of
-            // a single coverage run (a deliberate, scoped override) — the cache resumes
-            // on their next non-coverage invocation. Surprising if a user expects their
-            // cache to persist under coverage; documented here and mirrored in the JS
-            // half (preload-common.cjs reenableUserCompileCache), which carries the same
-            // gate for coverage children nub's spawn path never sees.
-            cmd.env_remove("NODE_COMPILE_CACHE");
-        } else if let Some(dir) = env::var("NODE_COMPILE_CACHE")
+        if let Some(dir) = env::var("NODE_COMPILE_CACHE")
             .ok()
             .filter(|s| !s.is_empty())
         {
+            // A user-set NODE_COMPILE_CACHE is honored ALWAYS — including under
+            // coverage (the maintainer, 2026-06-11: an explicit user flag clobbers any
+            // default nub sets; their coverage numbers may be cache-affected, the
+            // same tradeoff they'd have on plain node). Normal R8 strip+sentinel.
             cmd.env_remove("NODE_COMPILE_CACHE");
             if write_compile_cache_sentinel(&dir).is_ok() {
                 _ccache_guard = Some(CompileCacheSentinelGuard);
             }
+        } else if coverage {
+            // No user cache + coverage active: suppress nub's DEFAULT compile
+            // cache (a warm V8 cache collapses/omits per-branch coverage ranges,
+            // silently inflating `--experimental-test-coverage` / NODE_V8_COVERAGE
+            // numbers vs plain node). Drop any empty-string env and write no
+            // sentinel, so the preload's restore finds nothing. Mirrored in the JS
+            // half (preload-common.cjs reenableUserCompileCache) for coverage
+            // children nub's spawn path never sees.
+            cmd.env_remove("NODE_COMPILE_CACHE");
         } else if let Some(dir) = default_compile_cache_dir() {
             // Default-on compile cache (decided 2026-06-10, measured): when the
             // user hasn't set NODE_COMPILE_CACHE, point it at a nub-owned dir.
