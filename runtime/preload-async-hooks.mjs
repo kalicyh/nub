@@ -17,12 +17,15 @@
 // worker injects no watch hooks (watch IPC is main-thread only), so the core's
 // dependency reporters stay no-ops here, exactly as before the extraction.
 
-// Floor bootstrap (Node < 22.3/20.16/18.20.4): stashes createRequire on a
-// module-scoped global for transform-core, which has no process.getBuiltinModule
-// on the floor. MUST precede the transform-core import so the global is set before
-// transform-core's body evaluates. No-op where getBuiltinModule exists. This worker
-// runs OFF any user loader chain, so its static node:module imports never leak —
-// see floor-builtin.mjs.
+// Floor bootstrap (Node < 22.3/20.16/18.20.4): threads node:module's createRequire
+// into transform-core via a MODULE-SCOPE SETTER — never globalThis (brand boundary) —
+// because transform-core has no process.getBuiltinModule on the floor. floor-builtin
+// calls transform-core's setter during its own evaluation, so importing it FIRST
+// (ESM evaluates imports in source order) means the value is threaded before any hook
+// in this loader worker fires. No-op where getBuiltinModule exists. This worker runs
+// OFF any user loader chain, so floor-builtin's static node:module import never leaks
+// — see floor-builtin.mjs. (worker-polyfill is NOT loaded here: this is the dedicated
+// loader worker, not a user realm, so it installs no browser globals.)
 import "./floor-builtin.mjs";
 import {
   TRANSPILE_EXTS, DATA_EXTS,

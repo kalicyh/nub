@@ -26,13 +26,18 @@
 // side-effecting import has to precede the transform-core import. See
 // compile-cache-restore.mjs.
 import "./compile-cache-restore.mjs";
-// Floor bootstrap (Node < 22.3/20.16/18.20.4): stashes createRequire on a
-// module-scoped global for transform-core, which fetches its node: builtins via
-// process.getBuiltinModule and has no getBuiltinModule on the floor. MUST precede
-// the transform-core import so the global is set before transform-core's body
-// evaluates (ESM evaluates imports in source order). No-op on Node with
-// getBuiltinModule. See floor-builtin.mjs for why this is leak-safe.
-import "./floor-builtin.mjs";
+// Floor bootstrap (Node < 22.3/20.16/18.20.4): threads node:module's createRequire
+// into transform-core (and, below, worker-polyfill) via MODULE-SCOPE SETTERS — never
+// globalThis (brand boundary) — so those fast-tier `require(esm)` modules can fetch
+// node: builtins on the floor, where process.getBuiltinModule is absent. floor-builtin
+// holds the lone static node:module import and calls transform-core's setter during
+// ITS evaluation; importing it FIRST (ESM evaluates imports in source order) means
+// that setter has fired before transform-core's hooks are used. No-op on Node with
+// getBuiltinModule. See floor-builtin.mjs for why this is leak-safe. We capture its
+// re-exported `createRequire` (the floor's, off any user chain) to thread into
+// worker-polyfill below — that module is loaded later (dynamic import) so its setter
+// can't be called from floor-builtin's own evaluation.
+import { createRequire as floorCreateRequire } from "./floor-builtin.mjs";
 import module from "node:module";
 import { createRequire } from "node:module";
 import * as core from "./transform-core.mjs";
@@ -106,7 +111,18 @@ installSyncPolyfills(__preloadedPolyfills);
 if (typeof globalThis.navigator?.locks === "undefined") {
   await import("./navigator-locks.mjs");
 }
-await import("./worker-polyfill.mjs");
+// worker-polyfill fetches its node: builtins via process.getBuiltinModule; on the
+// floor (where that's absent) it needs the threaded createRequire BEFORE its install
+// runs. The module no longer auto-installs on the floor, so thread the value in and
+// install explicitly. On the fast/modern-compat tier the module already auto-installed
+// at eval (getBuiltinModule present) and installWorkerPolyfill() is an idempotent
+// no-op (its globalThis.Worker / worker-scope guards already fired). See
+// floor-builtin.mjs + worker-polyfill.mjs for the brand-safe (globalThis-free)
+// threading contract; this same path re-runs per worker realm (preload re-runs via
+// NODE_OPTIONS), so each user worker thread gets the value threaded too.
+const __workerPolyfill = await import("./worker-polyfill.mjs");
+__workerPolyfill.setBootstrapCreateRequire(floorCreateRequire);
+__workerPolyfill.installWorkerPolyfill();
 
 // ── Temporal: lazy global (A37) ─────────────────────────────────────
 common.installTemporalLazyGlobal(__require);

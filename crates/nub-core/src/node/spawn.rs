@@ -397,6 +397,18 @@ pub fn spawn_node(config: &SpawnConfig<'_>) -> Result<SpawnResult> {
             // Make sure nothing turns the cache back on for this run: drop any
             // inherited NODE_COMPILE_CACHE from the child env and write no sentinel,
             // so the preload's restore finds nothing and never re-enables.
+            //
+            // INTENTIONAL COVERAGE JUDGMENT CALL (a): this drops a user's EXPLICIT
+            // NODE_COMPILE_CACHE for the duration of the coverage run, not just nub's
+            // default-on cache. A warm V8 compile cache collapses/omits per-branch
+            // coverage ranges, so honoring the user's cache here would silently inflate
+            // their `--experimental-test-coverage` / NODE_V8_COVERAGE percentages vs
+            // plain node. We choose coverage PRECISION over their cache for the span of
+            // a single coverage run (a deliberate, scoped override) — the cache resumes
+            // on their next non-coverage invocation. Surprising if a user expects their
+            // cache to persist under coverage; documented here and mirrored in the JS
+            // half (preload-common.cjs reenableUserCompileCache), which carries the same
+            // gate for coverage children nub's spawn path never sees.
             cmd.env_remove("NODE_COMPILE_CACHE");
         } else if let Some(dir) = env::var("NODE_COMPILE_CACHE")
             .ok()
@@ -604,6 +616,18 @@ fn compile_cache_sentinel_path(nub_pid: u32) -> PathBuf {
 /// trailing-separator-stripped — identical to tmpdirNoOs(). nub forwards its own
 /// env to the child, so resolving from nub's env vars yields the child's view.
 fn compile_cache_tmpdir() -> PathBuf {
+    // Read the live process env; the resolution logic is pure over a lookup so it can
+    // be table-tested without mutating process env (see compile_cache_tmpdir_from).
+    compile_cache_tmpdir_from(|k| env::var(k).ok().filter(|s| !s.is_empty()))
+}
+
+/// Pure resolver behind [`compile_cache_tmpdir`]: given an env lookup that returns
+/// `None` for unset/empty, reproduce Node's libuv `os.tmpdir()` env resolution
+/// (POSIX: TMPDIR→TMP→TEMP→/tmp; Win32: TEMP→TMP→SystemRoot/windir+\temp),
+/// trailing-separator-stripped. Kept byte-parity with the JS `tmpdirNoOs()`
+/// (preload-common.cjs) so both ends agree on the sentinel path. Injectable so the
+/// table test never touches process env (the suite runs tests in parallel).
+fn compile_cache_tmpdir_from(lookup: impl Fn(&str) -> Option<String>) -> PathBuf {
     let strip_trailing = |mut s: String, sep: char| -> String {
         if s.len() > 1 && s.ends_with(sep) && !s.ends_with(&format!(":{sep}")) {
             s.pop();
@@ -611,23 +635,19 @@ fn compile_cache_tmpdir() -> PathBuf {
         s
     };
     if cfg!(windows) {
-        let dir = env::var("TEMP")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .or_else(|| env::var("TMP").ok().filter(|s| !s.is_empty()))
+        let dir = lookup("TEMP")
+            .or_else(|| lookup("TMP"))
             .unwrap_or_else(|| {
-                let root = env::var("SystemRoot")
-                    .or_else(|_| env::var("windir"))
+                let root = lookup("SystemRoot")
+                    .or_else(|| lookup("windir"))
                     .unwrap_or_default();
                 format!("{root}\\temp")
             });
         return PathBuf::from(strip_trailing(dir, '\\'));
     }
-    let dir = env::var("TMPDIR")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .or_else(|| env::var("TMP").ok().filter(|s| !s.is_empty()))
-        .or_else(|| env::var("TEMP").ok().filter(|s| !s.is_empty()))
+    let dir = lookup("TMPDIR")
+        .or_else(|| lookup("TMP"))
+        .or_else(|| lookup("TEMP"))
         .unwrap_or_else(|| "/tmp".to_string());
     PathBuf::from(strip_trailing(dir, '/'))
 }
@@ -1608,6 +1628,78 @@ mod tests {
             !path.exists(),
             "the guard must remove the sentinel so it never leaks"
         );
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn compile_cache_tmpdir_mirrors_node_os_tmpdir_on_posix() {
+        // The sentinel-dir resolver must stay byte-parity with the JS `tmpdirNoOs()`
+        // (preload-common.cjs): if the two ends disagree, the child can't find the
+        // sentinel nub wrote and the compile cache silently never enables. POSIX order
+        // is TMPDIR→TMP→TEMP→/tmp, trailing-slash stripped. Driven through the
+        // injectable resolver so the test never mutates (parallel-safe) process env.
+        let resolve = |pairs: &[(&str, &str)]| -> PathBuf {
+            let map: std::collections::HashMap<String, String> = pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            // Mirror the live resolver: empty values are treated as unset.
+            compile_cache_tmpdir_from(|k| map.get(k).cloned().filter(|s| !s.is_empty()))
+        };
+
+        // TMPDIR set → used verbatim.
+        assert_eq!(resolve(&[("TMPDIR", "/custom/tmp")]), PathBuf::from("/custom/tmp"));
+        // All unset → /tmp fallback (the case the clean `env -i` corpus harness hits).
+        assert_eq!(resolve(&[]), PathBuf::from("/tmp"));
+        // Trailing slash stripped (so the sentinel path doesn't double the separator).
+        assert_eq!(resolve(&[("TMPDIR", "/custom/tmp/")]), PathBuf::from("/custom/tmp"));
+        // TMP fallback when TMPDIR is unset.
+        assert_eq!(resolve(&[("TMP", "/from/tmp")]), PathBuf::from("/from/tmp"));
+        // TEMP fallback when TMPDIR and TMP are both unset (lowest POSIX priority).
+        assert_eq!(resolve(&[("TEMP", "/from/temp")]), PathBuf::from("/from/temp"));
+        // Priority: TMPDIR wins over TMP/TEMP when several are set.
+        assert_eq!(
+            resolve(&[("TMPDIR", "/win"), ("TMP", "/lose"), ("TEMP", "/lose")]),
+            PathBuf::from("/win"),
+        );
+        // An empty TMPDIR is treated as unset → falls through to TMP.
+        assert_eq!(resolve(&[("TMPDIR", ""), ("TMP", "/from/tmp")]), PathBuf::from("/from/tmp"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn compile_cache_tmpdir_mirrors_node_os_tmpdir_on_windows() {
+        // Win32 order is TEMP→TMP→(SystemRoot|windir)\temp, trailing-backslash stripped
+        // except after a drive root (`C:\`). Byte-parity with the JS `tmpdirNoOs()`
+        // Win32 branch. Injectable resolver → no process-env mutation.
+        let resolve = |pairs: &[(&str, &str)]| -> PathBuf {
+            let map: std::collections::HashMap<String, String> = pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            compile_cache_tmpdir_from(|k| map.get(k).cloned().filter(|s| !s.is_empty()))
+        };
+
+        // TEMP wins (highest Win32 priority).
+        assert_eq!(
+            resolve(&[("TEMP", "C:\\Users\\me\\AppData\\Local\\Temp"), ("TMP", "C:\\lose")]),
+            PathBuf::from("C:\\Users\\me\\AppData\\Local\\Temp"),
+        );
+        // TMP fallback when TEMP is unset.
+        assert_eq!(resolve(&[("TMP", "C:\\from\\tmp")]), PathBuf::from("C:\\from\\tmp"));
+        // Neither TEMP nor TMP → SystemRoot\temp.
+        assert_eq!(
+            resolve(&[("SystemRoot", "C:\\Windows")]),
+            PathBuf::from("C:\\Windows\\temp"),
+        );
+        // windir is the SystemRoot fallback.
+        assert_eq!(
+            resolve(&[("windir", "D:\\WinDir")]),
+            PathBuf::from("D:\\WinDir\\temp"),
+        );
+        // Trailing backslash stripped, but a bare drive root `C:\` is preserved.
+        assert_eq!(resolve(&[("TEMP", "C:\\Temp\\")]), PathBuf::from("C:\\Temp"));
+        assert_eq!(resolve(&[("TEMP", "C:\\")]), PathBuf::from("C:\\"));
     }
 
     /// A throwaway dir under the temp root, unique per call and removed on drop.

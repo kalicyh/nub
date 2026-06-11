@@ -173,6 +173,21 @@ jobs:
           cargo build -p nub-cli
           tests/brand-sweep/run.sh target/debug/nub
 
+      # globalThis brand-boundary sweep for the RUNTIME: `nub <file>` must never put
+      # a nub-named key on the user's globalThis, in the main realm OR a worker realm,
+      # by enumerable OR own-property predicate. Regression guard for the floor-tier
+      # `globalThis.__nubFloorCreateRequire` leak (enumerable, in both realms, on Node
+      # < 22.3 where process.getBuiltinModule is absent — now threaded through module
+      # scope). The test checks whatever `node` is on PATH (so the 18.19 leg here
+      # exercises the FLOOR path, where the leak lived) and also sweeps any floor Node
+      # under ~/.nvm. Run on the 18.19 floor leg AND the 24 fast leg to cover both
+      # tiers; the contract is OS-independent so one OS suffices.
+      - name: Brand sweep (globalThis runtime surface)
+        if: matrix.os == 'ubuntu-latest' && (matrix.node == '18.19' || matrix.node == '24')
+        run: |
+          cargo build -p nub-cli
+          tests/brand-global/run.sh target/debug/nub
+
   pnp:
     name: Yarn PnP (${{ matrix.os }}, node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}

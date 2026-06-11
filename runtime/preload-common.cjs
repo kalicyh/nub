@@ -674,6 +674,20 @@ function reenableUserCompileCache() {
   // This is the JS half of the compile-cache/coverage fix; spawn.rs is the Rust half
   // (it never sets the DEFAULT cache when it can see coverage in nub's own
   // argv/NODE_OPTIONS/NODE_V8_COVERAGE).
+  //
+  // INTENTIONAL COVERAGE JUDGMENT CALL (b): NODE_DISABLE_COMPILE_CACHE=1 is set in
+  // process.env, so it propagates SUBTREE-WIDE for the rest of this coverage session —
+  // it is inherited by EVERY descendant, including non-coverage grandchildren the
+  // user's test code spawns mid-run (e.g. a build step a covered test shells out to).
+  // Those grandchildren therefore ALSO lose compile caching for the duration, even
+  // though they aren't themselves collecting coverage. We accept this: the disable var
+  // is the only mechanism that reaches the test runner's isolated coverage child
+  // (which boots its cache before any preload gate can fire), and scoping it more
+  // tightly than "the whole coverage subtree" isn't possible via an inherited env var.
+  // The cost is bounded (no caching during one coverage session) and self-healing (a
+  // grandchild spawned outside a coverage run is unaffected); surprising only to a
+  // user who expects an unrelated grandchild to keep caching while a parent collects
+  // coverage. Documented here and at the spawn.rs coverage branch (judgment call (a)).
   if (coverageActiveInProcess()) {
     process.env.NODE_DISABLE_COMPILE_CACHE = "1";
     return;

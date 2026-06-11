@@ -69,23 +69,51 @@
 // 20.11–20.15, 22.0–22.2) it's `undefined`; there, transform-core is loaded ONLY via
 // static ESM `import` from the compat-tier entries (preload.mjs main thread /
 // preload-async-hooks.mjs loader worker), both OFF any user loader chain — so the
-// floor's `node:module` access cannot leak. We get the floor's `createRequire` from
-// runtime/floor-builtin.mjs, which the compat-tier entries import AHEAD of
-// transform-core; it stashes `createRequire` on a module-scoped global. That static
-// `node:module` import lives in floor-builtin.mjs, which the fast tier never loads,
-// so it never enters the fast-tier `require(esm)` graph.
-const __getBuiltin =
-  typeof process.getBuiltinModule === "function"
-    ? (id) => process.getBuiltinModule(id)
-    : ((__r) => (id) => __r(id))(globalThis.__nubFloorCreateRequire(import.meta.url));
+// floor's `node:module` access cannot leak.
+//
+// BRAND BOUNDARY — the floor's `createRequire` is THREADED IN THROUGH MODULE SCOPE,
+// not parked on `globalThis`. floor-builtin.mjs holds the lone static `import {
+// createRequire } from "node:module"` and pushes the value in here via the
+// `setBootstrapCreateRequire` setter below; nothing is ever written to the user's
+// global object (a `globalThis.__nub*` sentinel is the same brand leak as a NUB_*
+// env var — enumerable in user code AND worker realms — so it is forbidden). The
+// floor's `node:module` import lives only in floor-builtin.mjs, which the fast tier
+// never loads, so it never enters the fast-tier `require(esm)` graph.
+//
+// On the floor the threaded value isn't available at this module's top-level eval:
+// the compat entry imports floor-builtin AHEAD of transform-core, but ES modules
+// evaluate the importEE before the importer's body, so floor-builtin's setter call
+// (made during ITS evaluation) lands AFTER transform-core's body has run. So on the
+// floor every builtin is acquired LAZILY, on first hook use — by which point the
+// setter has run. On the fast tier getBuiltinModule is present, so the builtins are
+// acquired eagerly here at module eval (no setter, no floor path involved).
+let _bootstrapCreateRequire = null;
+// Called by floor-builtin.mjs (imported first by the compat entries) to hand in the
+// floor's `createRequire` without any globalThis surface. NEVER called on the fast
+// tier (getBuiltinModule covers it). The compat entries import floor-builtin ahead of
+// transform-core, so by the time this fires transform-core's body has already
+// evaluated (importEE before importer) — which is exactly why this setter also runs
+// __ensureBuiltins() right now: it lands DURING floor-builtin's evaluation, before the
+// entry's body and long before any hook fires, so every builtin binding is ready
+// without ever consulting globalThis.
+export function setBootstrapCreateRequire(fn) {
+  _bootstrapCreateRequire = fn;
+  __ensureBuiltins();
+}
 
-const { createRequire } = __getBuiltin("node:module");
-const __require = createRequire(import.meta.url);
+// node: builtins (lazy on the floor, eager on the fast tier — see above). On the
+// floor `_bootstrapCreateRequire` is read at FETCH time (inside the thunk), never at
+// definition time, so floor-builtin's setter has run before the first fetch fires.
+function __getBuiltin(id) {
+  if (typeof process.getBuiltinModule === "function") return process.getBuiltinModule(id);
+  return _bootstrapCreateRequire(import.meta.url)(id);
+}
 
-const module = __getBuiltin("node:module");
-const { readFileSync, writeFileSync, mkdirSync, statSync } = __getBuiltin("node:fs");
-const { fileURLToPath, pathToFileURL } = __getBuiltin("node:url");
-const { join, dirname } = __getBuiltin("node:path");
+// Builtin bindings + the native addon, populated by __ensureBuiltins(). They stay
+// `let` (not `const`) because on the floor they are filled on first hook use rather
+// than at module eval — see the lazy-vs-eager note above.
+let createRequire, __require, module, readFileSync, writeFileSync, mkdirSync, statSync;
+let fileURLToPath, pathToFileURL, join, dirname;
 // Nub's N-API addon — the in-process TS/JSX transpiler (`transform`,
 // `transformCached`, `detectModuleInfo`), the tsconfig reader + additive
 // TS-resolver (`loadTsconfig`, `resolveTs`), AND the data-format parsers
@@ -99,9 +127,27 @@ const { join, dirname } = __getBuiltin("node:path");
 // package, no static-import graph to route. nub now loads ZERO npm packages
 // internally, so the user ESM loader chain can never observe a nub dependency.
 let nubNative = null;
-for (const rel of ["./addons/nub-native.node", "../runtime/addons/nub-native.node"]) {
-  try { nubNative = __require(fileURLToPath(new URL(rel, import.meta.url))); break; } catch {}
+
+// Idempotent. Acquires the node: builtins + the native addon. Runs eagerly at module
+// eval on the fast tier (getBuiltinModule present); on the floor it is invoked at the
+// top of every exported entry point, where the threaded createRequire is ready.
+let __builtinsReady = false;
+function __ensureBuiltins() {
+  if (__builtinsReady) return;
+  __builtinsReady = true;
+  ({ createRequire } = __getBuiltin("node:module"));
+  __require = createRequire(import.meta.url);
+  module = __getBuiltin("node:module");
+  ({ readFileSync, writeFileSync, mkdirSync, statSync } = __getBuiltin("node:fs"));
+  ({ fileURLToPath, pathToFileURL } = __getBuiltin("node:url"));
+  ({ join, dirname } = __getBuiltin("node:path"));
+  for (const rel of ["./addons/nub-native.node", "../runtime/addons/nub-native.node"]) {
+    try { nubNative = __require(fileURLToPath(new URL(rel, import.meta.url))); break; } catch {}
+  }
 }
+// Fast tier: getBuiltinModule is present, so acquire everything now (preserves the
+// original eager-at-eval behavior). The floor defers to first-use — see above.
+if (typeof process.getBuiltinModule === "function") __ensureBuiltins();
 
 // NOTE: the transpile-cache version component is no longer read here. nub's
 // version is baked into the native addon at compile time (`env!("CARGO_PKG_VERSION")`
@@ -474,27 +520,39 @@ function hasDecoratorSyntax(filePath, source, lang) {
 // nub-specific env var). Per wiki/runtime/transpile-cache.md (the maintainer 2026-05-18).
 const CACHE_DISABLED =
   process.permission?.has !== undefined || process.env.NODE_COMPILE_CACHE === "0";
+// Resolved lazily (memoized) rather than at module eval, because on the floor the
+// node:path builtins it needs aren't bound until __ensureBuiltins() runs on first
+// hook use. `null` = disabled / no writable dir; `undefined` cacheDirResolved means
+// "not yet computed".
 let cacheDir = null;
-if (!CACHE_DISABLED) {
+let cacheDirResolved = false;
+function getCacheDir() {
+  if (cacheDirResolved) return cacheDir;
+  cacheDirResolved = true;
+  if (CACHE_DISABLED) return cacheDir;
+  __ensureBuiltins();
   const base = process.env.XDG_CACHE_HOME || (process.env.HOME ? join(process.env.HOME, ".cache") : null);
   if (base) {
     cacheDir = join(base, "nub", "transpile");
     try { mkdirSync(cacheDir, { recursive: true }); } catch { cacheDir = null; }
   }
+  return cacheDir;
 }
 
 // ── Bounded-cache maintenance ───────────────────────────────────────
 const CACHE_MAX_BYTES = 512 * 1024 * 1024; // 512 MiB — bounds runaway growth, not normal use
 const SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000; // ≤ one sweep per day
 export function maybeSweepCache() {
-  if (!cacheDir) return;
+  __ensureBuiltins();
+  const dir = getCacheDir();
+  if (!dir) return;
   // Workers inherit this preload (via execArgv); only the main thread sweeps.
   try {
     if (!__require("node:worker_threads").isMainThread) return;
   } catch {
     return;
   }
-  const sentinel = join(cacheDir, ".sweep");
+  const sentinel = join(dir, ".sweep");
   const s = statSync(sentinel, { throwIfNoEntry: false });
   if (s && Date.now() - s.mtimeMs < SWEEP_INTERVAL_MS) return;
   try {
@@ -503,7 +561,7 @@ export function maybeSweepCache() {
     return;
   }
   import("./cache-evict.mjs")
-    .then((m) => m.sweepCache(cacheDir, CACHE_MAX_BYTES))
+    .then((m) => m.sweepCache(dir, CACHE_MAX_BYTES))
     .catch(() => {});
 }
 
@@ -514,6 +572,7 @@ export function maybeSweepCache() {
 // fix that makes `require()` of a TS file work on the compat tier, where Node's
 // CJS translator loads it via this hook and keys on the returned format.
 export function loadTranspile(url, ext) {
+  __ensureBuiltins();
   const filePath = fileURLToPath(url);
   const source = readFileSync(filePath, "utf8");
   const dir = dirname(filePath);
@@ -574,7 +633,7 @@ export function loadTranspile(url, ext) {
   // JS enable/disable signal: native then skips all cache I/O and just transforms.
   const formatByte = format === "commonjs" ? "c" : "m";
   const result = nubNative.transformCached(
-    filePath, source, opts, ext, tsconfigHash || "", pkgType || "", formatByte, cacheDir ?? undefined,
+    filePath, source, opts, ext, tsconfigHash || "", pkgType || "", formatByte, getCacheDir() ?? undefined,
   );
   if (result.errors.length > 0) {
     const details = result.errors.map((e) => e.codeframe || e.message).join("\n\n");

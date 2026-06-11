@@ -24,14 +24,27 @@
 // present (fast tier + modern compat: no static import, nothing for the user chain
 // to observe), and on the narrow FLOOR where it's absent (Node < 22.3/20.16/18.20.4,
 // loaded only via the compat-tier entries OFF any user chain) the createRequire
-// stashed by runtime/floor-builtin.mjs — the single static `node:module` import lives
-// there, in a module the fast tier never loads. See floor-builtin.mjs.
-const __getBuiltin =
-  typeof process.getBuiltinModule === "function"
-    ? (id) => process.getBuiltinModule(id)
-    : ((__r) => (id) => __r(id))(globalThis.__nubFloorCreateRequire(import.meta.url));
-const { Worker: NodeWorker, parentPort, isMainThread } = __getBuiltin("node:worker_threads");
-const { fileURLToPath } = __getBuiltin("node:url");
+// THREADED IN through `setBootstrapCreateRequire` below.
+//
+// BRAND BOUNDARY — the floor's `createRequire` is threaded through MODULE SCOPE, never
+// parked on `globalThis` (a `globalThis.__nub*` sentinel is the same brand leak as a
+// NUB_* env var — enumerable in user code AND worker realms — so it is forbidden). On
+// the floor this module is loaded ONLY via the compat-tier main-thread preload
+// (preload.mjs), which imports floor-builtin first, then — AFTER importing this module
+// — calls `setBootstrapCreateRequire(createRequire)` and `installWorkerPolyfill()`. So
+// the install work is deferred (this module does NOT auto-run on the floor): its body
+// fetches builtins, and on the floor those aren't reachable until the setter runs.
+// On the fast tier (getBuiltinModule present) the install runs eagerly at module eval
+// — see the auto-install at the bottom — so the existing side-effect-`require` call
+// sites (preload.cjs, polyfills.cjs) are unchanged.
+let _bootstrapCreateRequire = null;
+export function setBootstrapCreateRequire(fn) {
+  _bootstrapCreateRequire = fn;
+}
+function __getBuiltin(id) {
+  if (typeof process.getBuiltinModule === "function") return process.getBuiltinModule(id);
+  return _bootstrapCreateRequire(import.meta.url)(id);
+}
 
 // `ErrorEvent` only became a global in Node 26. On the 22/24 floor it is
 // undefined, so `new ErrorEvent(...)` below would throw a ReferenceError inside
@@ -66,7 +79,16 @@ function getErrorEventCtor() {
         });
 }
 
-if (typeof globalThis.Worker === "undefined") {
+// Define the browser-shape `Worker` global (main thread) + the worker-side scope
+// (self/postMessage/message wiring). Acquires its node: builtins on entry — on the
+// floor that needs the threaded createRequire, so this runs only after the compat
+// entry has called setBootstrapCreateRequire (or, on the fast tier, eagerly via the
+// auto-install at the bottom).
+export function installWorkerPolyfill() {
+  const { Worker: NodeWorker, parentPort, isMainThread } = __getBuiltin("node:worker_threads");
+  const { fileURLToPath } = __getBuiltin("node:url");
+
+  if (typeof globalThis.Worker === "undefined") {
   class Worker extends EventTarget {
     #worker;
 
@@ -292,4 +314,12 @@ if (!isMainThread && parentPort) {
   if (typeof scope.close !== "function") {
     defineGlobal("close", () => process.exit(0));
   }
+  }
 }
+
+// Fast tier (and modern compat): getBuiltinModule is present, so the install needs no
+// threaded createRequire — run it eagerly at module eval, preserving the side-effect-
+// on-`require` contract the fast-tier call sites (preload.cjs, polyfills.cjs) rely on.
+// On the FLOOR (getBuiltinModule absent) this is skipped; the compat main-thread
+// preload calls setBootstrapCreateRequire(...) + installWorkerPolyfill() explicitly.
+if (typeof process.getBuiltinModule === "function") installWorkerPolyfill();
