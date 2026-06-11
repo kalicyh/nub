@@ -8,7 +8,7 @@
 //! `bin`, `root`, and the npm-fallback `search` (delegates to `npm` when
 //! the `npmPath` setting is configured, else fails with the npm-only
 //! diagnostic — same shape as `whoami`/`owner` in the publish family).
-//! **Still a stub**: — deliberately — `sbom` (below).
+//! **Still a stub** (deliberately): `sbom` (below).
 //!
 //! `bin -g` / `root -g` print the engine's global-install layout (the
 //! `PNPM_HOME`-compatible home, packages under its `global-aube/` subdir) —

@@ -160,7 +160,7 @@ fn dispatch_config(parsed: ConfigArgs) -> Result<i32> {
 fn run_config_get_registry(parsed: ConfigArgs, json: bool) -> Result<i32> {
     const DEFAULT_REGISTRY: &str = "https://registry.npmjs.org/";
     let session = super::engine_session(None)?;
-    let (result, captured) = super::install_family::with_fd_captured(1, || {
+    let (result, captured) = super::with_fd_captured(1, || {
         session
             .runtime
             .block_on(aube::commands::config::run(parsed))

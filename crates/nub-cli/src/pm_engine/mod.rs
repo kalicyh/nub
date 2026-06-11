@@ -1172,6 +1172,83 @@ fn build_runtime() -> Result<tokio::runtime::Runtime> {
         .context("failed to build the install engine's tokio runtime")
 }
 
+// ───────────────────────── fd capture ──────────────────────────
+
+/// Run `f` with OS-level fd `fd` (1 = stdout, 2 = stderr) redirected into a
+/// pipe; returns `f`'s result plus everything written, so the caller can
+/// re-emit it through the brand rewrite. Only used for verbs that spawn no
+/// children and render no progress UI (the install family captures it for
+/// the verbs that print engine branding; the config family borrows it for
+/// `config get`'s registry-default substitution). Any setup failure degrades
+/// to running `f` unredirected with an empty capture — output then reaches
+/// the console directly (un-rewritten), which beats losing it.
+///
+/// Captures are serialized process-wide: the fd table is process-global, so
+/// two concurrent dup2 swaps of the same fd interleave into a torn state
+/// (writes landing on a closed pipe). Production runs one capture per
+/// command, so the lock is free there; it exists for the unit-test binary,
+/// where parallel tests genuinely raced it (flaky
+/// `fd_capture_round_trips_raw_prints`).
+#[cfg(unix)]
+pub(crate) fn with_fd_captured<T>(fd: libc::c_int, f: impl FnOnce() -> T) -> (T, String) {
+    use std::io::{Read as _, Write as _};
+    use std::os::unix::io::FromRawFd as _;
+
+    static FD_SWAP: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = FD_SWAP.lock().unwrap_or_else(|p| p.into_inner());
+
+    let flush = |fd: libc::c_int| {
+        // Rust's stdout is buffered; push pending bytes to whichever target
+        // fd 1 currently points at. stderr is unbuffered.
+        if fd == 1 {
+            let _ = std::io::stdout().flush();
+        }
+    };
+
+    // SAFETY: plain POSIX fd plumbing on fds this function owns end-to-end.
+    unsafe {
+        let mut ends = [0 as libc::c_int; 2];
+        if libc::pipe(ends.as_mut_ptr()) != 0 {
+            return (f(), String::new());
+        }
+        let (read_end, write_end) = (ends[0], ends[1]);
+        flush(fd); // pre-swap: drain pending bytes to the real target
+        let saved = libc::dup(fd);
+        if saved < 0 || libc::dup2(write_end, fd) < 0 {
+            libc::close(read_end);
+            libc::close(write_end);
+            if saved >= 0 {
+                libc::close(saved);
+            }
+            return (f(), String::new());
+        }
+        libc::close(write_end);
+        // Drain concurrently so a full pipe buffer can never deadlock `f`.
+        let mut reader = std::fs::File::from_raw_fd(read_end);
+        let drain = std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = reader.read_to_end(&mut buf);
+            buf
+        });
+        let result = f();
+        flush(fd); // post-run: push f's buffered tail into the pipe
+        libc::dup2(saved, fd);
+        libc::close(saved);
+        // fd restored + our write end closed ⇒ the drain thread sees EOF.
+        let bytes = drain.join().unwrap_or_default();
+        (result, String::from_utf8_lossy(&bytes).into_owned())
+    }
+}
+
+/// KNOWN GAP (non-unix): no fd capture — the engine's raw prints reach the
+/// console un-rewritten, so `approve-builds`' final hint still names the
+/// engine's verbs on Windows. Root fix is fork-side (embedder-aware tool
+/// name in those prints); see the install family's module doc.
+#[cfg(not(unix))]
+pub(crate) fn with_fd_captured<T>(_fd: i32, f: impl FnOnce() -> T) -> (T, String) {
+    (f(), String::new())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
