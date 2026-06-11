@@ -15,13 +15,23 @@ pub fn resolve_script(manifest: &serde_json::Value, name: &str) -> Option<String
 }
 
 /// Build the npm_* environment variables from package.json.
+///
+/// `user_agent_product` is the role-aware UA *product tokens* (everything
+/// before the `<os> <arch>` tail) composed by the PM engine's role resolver
+/// (`crates/nub-cli/src/pm_engine/mod.rs::run_lifecycle_ua_product`), so a
+/// `nub run`/`nub exec` script reports the incumbent PM's role exactly like an
+/// engine lifecycle spawn does (e.g. `pnpm/9.1.0 nub/<v> node/v<ver>`). The
+/// platform tail is appended here in Node's `process.platform`/`process.arch`
+/// vocabulary so postinstall sniffers parse one format. nub-core has no PM
+/// identity logic, so the role-aware product is threaded in rather than
+/// recomputed — keeping the UA composition centralized in one place.
 pub fn npm_env(
     manifest: &serde_json::Value,
     project_root: &Path,
     lifecycle_event: &str,
     lifecycle_script: Option<&str>,
     node_execpath: &str,
-    node_version: &str,
+    user_agent_product: &str,
 ) -> HashMap<String, String> {
     let mut env_vars = HashMap::new();
 
@@ -62,19 +72,16 @@ pub fn npm_env(
 
     env_vars.insert("npm_command".to_string(), "run-script".to_string());
 
-    // pnpm's UA shape (`<name>/<ver> npm/? node/v<ver> <platform> <arch>`) so
-    // postinstall sniffers (which-pm-runs, only-allow, create-* scaffolders)
-    // parse it; first token stays honestly `nub` (decision 2026-06-09). Platform
-    // tokens use Node's process.platform/process.arch vocabulary (darwin/win32,
-    // x64/arm64), not Rust's, so parsers see the same words npm/pnpm send.
-    let nub_version = env!("CARGO_PKG_VERSION");
+    // pnpm's UA shape (`<product tokens> <platform> <arch>`) so postinstall
+    // sniffers (which-pm-runs, only-allow, create-* scaffolders) parse it. The
+    // product tokens are ROLE-AWARE — composed by the PM engine and threaded in
+    // (incumbent-first in compat mode, e.g. `pnpm/9.1.0 nub/<v> node/v<ver>`;
+    // nub-first under nub identity / fresh). Platform tokens use Node's
+    // process.platform/process.arch vocabulary (darwin/win32, x64/arm64), not
+    // Rust's, so parsers see the same words npm/pnpm send.
     env_vars.insert(
         "npm_config_user_agent".to_string(),
-        format!(
-            "nub/{nub_version} npm/? node/v{node_version} {} {}",
-            node_platform(),
-            node_arch()
-        ),
+        format!("{user_agent_product} {} {}", node_platform(), node_arch()),
     );
 
     if let Ok(exe) = env::current_exe() {

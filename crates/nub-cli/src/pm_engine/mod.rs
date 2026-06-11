@@ -875,6 +875,27 @@ fn lifecycle_ua_product(detected: Option<&DetectedLockfile>, cwd: &Path) -> Stri
     )
 }
 
+/// Role-aware lifecycle UA *product tokens* for the `nub run` / `nub exec`
+/// script path (`crates/nub-cli/src/cli.rs::build_script_command`), so a
+/// run-script reports the same incumbent-first UA the engine's lifecycle path
+/// already sends (`pnpm/<ver> nub/<ver> node/v<ver>` in compat mode, `nub/...`
+/// first under nub identity / fresh). Resolves the project's PM identity by
+/// walking up from `cwd` exactly as the engine does, then defers to the shared
+/// composer — there is no second hardcoded UA. The caller (`npm_env`) appends
+/// the `<os> <arch>` platform tail in the runner's vocabulary. `node_version`
+/// is threaded in from the run path's single Node discovery so this does not
+/// re-discover. Falls back to the nub-first product on an identity error
+/// (a malformed/ambiguous lockfile is surfaced loudly elsewhere; the UA must
+/// never panic a script spawn).
+pub(crate) fn run_lifecycle_ua_product(cwd: &Path, node_version: &str) -> String {
+    let detected = resolve_identity_walk_up(cwd).ok().flatten();
+    compose_lifecycle_ua(
+        nub_core::pm::resolve::declared_pm_raw(cwd),
+        detected.map(|d| d.kind),
+        node_version,
+    )
+}
+
 /// Pure core of [`lifecycle_ua_product`] (unit-tested without a fixture).
 fn compose_lifecycle_ua(
     declared: Option<(String, Option<String>)>,

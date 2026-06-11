@@ -3918,3 +3918,107 @@ fn node_which_unsatisfiable_pin_gives_nub_remedy_not_nvm() {
         "the nvm-install / compat-mode suggestions contradict nub and must be gone: {stderr:?}"
     );
 }
+
+/// `nub run`/`nub exec` must report a ROLE-AWARE `npm_config_user_agent`, the
+/// same incumbent-first UA the engine's lifecycle path sends — not a hardcoded
+/// `nub/<v> npm/?`. Postinstall sniffers (only-allow, which-pm-runs) branch on
+/// this token, so a pnpm project's run-script reporting `npm/?` is a real
+/// compat break. Three cases, one fixture each: a pnpm incumbent
+/// (`packageManager` + pnpm-lock.yaml) → `pnpm/<pin> nub/<v> …`; an npm
+/// incumbent → `npm/<pin> nub/<v> …`; a fresh/nub-identity project (no
+/// declaration, no lockfile) → `nub/<v> npm/? …`. The version token is the
+/// declared pin; the platform tail follows in Node's vocabulary. Regression
+/// guard for the hardcoded-UA bug in `npm_env`.
+#[test]
+fn run_script_reports_role_aware_user_agent() {
+    let nub_version = env!("CARGO_PKG_VERSION");
+    let base = std::env::temp_dir().join(format!("nub-ua-role-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+
+    // package.json#scripts that echoes the UA the inner Node sees. The script
+    // is plain `node` so the runner's lifecycle env (where npm_config_user_agent
+    // is set) is the only source of the value.
+    let ua_script = r#"node -e "console.log(process.env.npm_config_user_agent)""#;
+
+    struct Case {
+        /// Subdir + manifest `name`.
+        name: &'static str,
+        /// Extra `package.json` field declaring the incumbent (empty = fresh).
+        manifest_extra: &'static str,
+        /// Lockfile that pins the project's PM identity (none = fresh/nub).
+        lockfile: Option<(&'static str, &'static str)>,
+        /// The UA tokens that must lead, before the ` node/v… <os> <arch>` tail.
+        expected_prefix: String,
+    }
+    let cases = [
+        Case {
+            name: "pnpm",
+            manifest_extra: r#""packageManager": "pnpm@9.1.0","#,
+            lockfile: Some(("pnpm-lock.yaml", "lockfileVersion: \"9.0\"\n")),
+            expected_prefix: format!("pnpm/9.1.0 nub/{nub_version}"),
+        },
+        Case {
+            name: "npm",
+            manifest_extra: r#""packageManager": "npm@10.5.0","#,
+            lockfile: Some((
+                "package-lock.json",
+                "{\"lockfileVersion\":3,\"name\":\"npm-ua\"}\n",
+            )),
+            expected_prefix: format!("npm/10.5.0 nub/{nub_version}"),
+        },
+        Case {
+            name: "fresh",
+            manifest_extra: "",
+            lockfile: None,
+            expected_prefix: format!("nub/{nub_version} npm/?"),
+        },
+    ];
+
+    for Case {
+        name,
+        manifest_extra,
+        lockfile,
+        expected_prefix,
+    } in &cases
+    {
+        let dir = base.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("package.json"),
+            format!(
+                r#"{{ "name": "{name}-ua", "version": "1.0.0", {manifest_extra} "scripts": {{ "ua": {ua_script:?} }} }}"#
+            ),
+        )
+        .unwrap();
+        if let Some((lock_name, lock_body)) = lockfile {
+            std::fs::write(dir.join(lock_name), *lock_body).unwrap();
+        }
+
+        let out = Command::new(nub_binary())
+            .args(["run", "ua"])
+            .current_dir(&dir)
+            .env("XDG_CACHE_HOME", unique_test_cache())
+            .output()
+            .expect("failed to spawn nub run ua");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "[{name}] run exited non-zero: stderr={stderr}\nstdout={stdout}"
+        );
+        let ua = stdout.trim();
+        assert!(
+            ua.starts_with(expected_prefix.as_str()),
+            "[{name}] npm_config_user_agent must lead with `{expected_prefix}` (role-aware), got: {ua:?}"
+        );
+        // The Node token and platform tail follow the product tokens in pnpm's
+        // shape, so a sniffer parses one format regardless of role.
+        assert!(
+            ua.contains(" node/v"),
+            "[{name}] UA must carry the node/v<ver> token: {ua:?}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&base);
+}

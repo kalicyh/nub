@@ -2233,13 +2233,20 @@ fn build_script_command(
     let node = nub_core::node::discovery::discover_node(&cwd)
         .unwrap_or_else(|_| nub_core::node::discovery::ResolvedNode::fallback());
 
+    // Role-aware lifecycle UA: a `nub run`/`nub exec` script must report the
+    // same incumbent-first `npm_config_user_agent` the engine's lifecycle path
+    // already sends (so only-allow / which-pm-runs see `pnpm/<ver> nub/<v> …`
+    // in a pnpm project, not a hardcoded `nub/<v> npm/?`). The role resolver
+    // walks up from `cwd`; the version token is the run path's already-resolved
+    // Node, threaded in so it isn't re-discovered.
+    let ua_product = crate::pm_engine::run_lifecycle_ua_product(&cwd, &node.version.to_string());
     let npm_env = nub_core::workspace::scripts::npm_env(
         &project.manifest,
         &project.root,
         lifecycle_event,
         Some(cmd),
         node.path.as_str(),
-        &node.version.to_string(),
+        &ua_product,
     );
 
     // Shell precedence: the explicit `--script-shell <path>` flag wins, then a
