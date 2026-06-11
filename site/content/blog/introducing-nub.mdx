@@ -21,7 +21,7 @@ $ nub node install 26      # manage Node.js versions
 Node is the gold standard for server-side JavaScript. It defines the stdlib the whole ecosystem is built on and sets the bar for stability and trust. That reputation comes from strict compatibility guarantees and careful governance — the same caution that means Node can't chase modern DX. So the day-to-day toolchain grew up around it, one tool at a time:
 
 - **`node`** — runs files. Recently added limited TypeScript support.
-- **`npm run`** (or `pnpm run`, `yarn run`) — the "script runner." Node never shipped package management, so third-party package managers became the frontend for almost everything you do in a Node project.
+- **`npm run`** (or `pnpm run`, `yarn run`) — the "script runner." Node leaves package management to userland, so third-party package managers became the frontend for almost everything you do in a Node project.
 - **`npx`** (or `pnpm exec`) — the "bin runner," for CLIs your dependencies ship into `node_modules/.bin`.
 - **`tsx` / `ts-node`** — TypeScript support, bolted on.
 - **`dotenv`** — `.env` file loading.
