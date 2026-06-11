@@ -1102,9 +1102,17 @@ fn split_subcommand_argv(rest: Vec<String>) -> (Vec<String>, Vec<String>) {
             continue;
         }
         // First bare token after the subcommand = the positional. The prefix is
-        // everything up to and including it; the rest is forwarded verbatim.
+        // everything up to and including it; the rest is forwarded verbatim — but
+        // a single `--` immediately after the positional is the conventional
+        // end-of-options separator (npm/pnpm/yarn/cargo all drop it), so consume
+        // it. (`nub run build -- a b c` → args `["a","b","c"]`.) Only that first
+        // `--` is stripped; any later `--` is a literal argument.
         let prefix = rest[..=i].to_vec();
-        let suffix = rest[i + 1..].to_vec();
+        let mut start = i + 1;
+        if rest.get(start).is_some_and(|t| t == "--") {
+            start += 1;
+        }
+        let suffix = rest[start..].to_vec();
         return (prefix, suffix);
     }
     // No positional found (e.g. `nub run`, `nub exec --help`): hand the whole
@@ -5082,6 +5090,26 @@ mod tests {
             }
             other => panic!("expected Run, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn run_strips_the_post_script_dashdash_separator() {
+        // `nub run build -- a b c` must forward `["a","b","c"]`, not
+        // `["--","a","b","c"]`: the first `--` after the script positional is the
+        // conventional end-of-options separator (npm/pnpm/yarn/cargo all drop it).
+        // Only that first `--` is consumed; a later `--` is a literal argument.
+        let (_, suffix) =
+            split_subcommand_argv(["run", "build", "--", "a", "b", "c"].map(String::from).to_vec());
+        assert_eq!(suffix, ["a", "b", "c"]);
+
+        let (_, suffix) =
+            split_subcommand_argv(["run", "build", "--", "a", "--", "b"].map(String::from).to_vec());
+        assert_eq!(suffix, ["a", "--", "b"]);
+
+        // No separator: args forward verbatim, including a literal `--` mid-stream.
+        let (_, suffix) =
+            split_subcommand_argv(["run", "build", "a", "b"].map(String::from).to_vec());
+        assert_eq!(suffix, ["a", "b"]);
     }
 
     #[test]
