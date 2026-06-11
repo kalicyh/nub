@@ -172,7 +172,7 @@ The rest of the hot path delegates to crates the Rust JavaScript-tooling ecosyst
 
 Bun is a from-scratch JavaScript runtime built on JavaScriptCore, with its own module loader, its own package manager, its own test runner, its own bundler, and its own `Bun.*` API surface. It's an impressive engineering effort and a real product. The tradeoff is that "I wrote this on Bun" eventually becomes "this only runs on Bun," and the path back to Node is a rewrite — `Bun.serve()`, `bun:sqlite`, `bun:test`, the `Bun` global, and `@types/bun` are baked into application code.
 
-Nub is the inverse bet. The compatibility surface stays Node's — your code is plain Node code, no `globalThis.nub`, no `nub:*` module namespace, no `@nub/*` npm scope, no `NUB_*` environment variables in your code or config. The augmentations Nub applies are all things that work on plain Node with the matching `module.register()` / `--import` / npm addon. Most of Bun's "all-in-one" pitch is now either native to Node or implementable on top of it; Nub assembles the rest.
+Nub is the inverse bet. The compatibility surface stays Node's — your code is plain Node code, no `globalThis.nub`, no `nub:*` module namespace, no `@nub/*` npm scope, no `NUB_*` environment variables. The augmentations Nub applies are all things that work on plain Node with the matching `module.register()` / `--import` / npm addon. Most of Bun's "all-in-one" pitch is now either native to Node or implementable on top of it; Nub assembles the rest.
 
 Bun was designed in 2022, before Node exposed `module.register()` (Node 20.6, August 2023) and `module.registerHooks()` (Node 22.15, April 2025). The build-vs.-extend tradeoff has tipped since.
 
@@ -192,7 +192,7 @@ Node itself shipped a built-in script runner in 22.0 (`node --run`, April 2024).
 
 Your codebase keeps working on plain Node, unchanged.
 
-Nub adds no APIs to your code. No `globalThis.nub`. No `nub:*` module namespace. No `@nub/*` npm scope (with the single TypeScript-ecosystem exception of `@types/nub` on DefinitelyTyped). No `NUB_*` environment variables in your code or config. No `"nub"` field in `package.json`. Your `package.json` doesn't mention Nub. Your imports don't reference Nub. Your runtime checks don't gate on Nub.
+Nub adds no APIs to your code. No `globalThis.nub`. No `nub:*` module namespace. No `@nub/*` npm scope (with the single TypeScript-ecosystem exception of `@types/nub` on DefinitelyTyped). No `NUB_*` environment variables. No `"nub"` field in `package.json`. Your `package.json` doesn't mention Nub. Your imports don't reference Nub. Your runtime checks don't gate on Nub.
 
 If Nub disappeared tomorrow, the worst case is: TypeScript files need a separate compile step or a tsx-equivalent loader; `.env` files need `dotenv-cli` or `import "dotenv/config"` again; you're back to whatever toolchain you had before. The code itself doesn't change.
 
