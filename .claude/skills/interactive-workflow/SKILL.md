@@ -111,6 +111,18 @@ This stacks questions (in the queue, not via blocking), asks in batches (fewer i
 
 ---
 
+## Reconcile EVERY returning agent — a dropped thread is the cardinal failure
+
+The orchestrator is the only thing keeping the workflow coherent. **A sub-agent that returns and is never ingested is the single worst failure mode** — its findings, its WIP, its surfaced question all vanish, and the board silently lies about the state of the work. This happens when a completion notification arrives while you're deep in a conversational thread (a design discussion, a question from the human) and you let it scroll past without folding it in. Do not.
+
+Discipline:
+
+- **Maintain a dispatch ledger in the tracker** — every agent you launch gets a row: ID, effort, status (`running`/`done`/`folded`), and whether its result has been ingested. A returning agent is not "handled" until its facts are in the card, its status advanced, and any question it raised is in the queue. *Folded*, not just *finished*.
+- **Reconcile the ledger at the TOP of every turn**, before anything else — including before answering the human. A returning agent outranks any conversational thread: ingest it first, then continue the discussion. The human's question will still be there; the agent's result won't re-announce itself.
+- **Verify agent status with the task-status tool, NOT file mtime.** A blocked-on-child agent (one that spawned a nested agent and is awaiting it) does not write its own output, so its file looks stale even though it is still running — mtime will tell you "done ~20 min ago" when it is actually mid-flight. Use the structured task-output/status check (`block:false`) to get the true `running`/`completed` state. (Calibrated 2026-06-11: an mtime audit wrongly flagged a still-running Docker probe as a dropped thread.)
+- **Never Read a local-agent's `.output` file directly** — it is the full JSONL transcript and overflows your context. Use the task-status tool for status, and rely on the completion notification (or the agent's returned final message) for the result.
+- **If a completion was missed, recover it:** the agent's final message is the deliverable; retrieve it via the task tool and fold it. Do not re-dispatch a duplicate — that burns quota and races the original.
+
 ## Dynamic, not pre-planned
 
 There is no committed step list to march through. Each turn:
