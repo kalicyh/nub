@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+time:
+  lodash@4.18.1: 2026-04-01T21:01:20.458Z
+
 importers:
 
   .:
@@ -17,6 +20,9 @@ importers:
       '@petamoriken/float16':
         specifier: ^3.9.3
         version: 3.9.3
+      lodash:
+        specifier: ^4.18.1
+        version: 4.18.1
       urlpattern-polyfill:
         specifier: ^10.1.0
         version: 10.1.0
@@ -37,6 +43,9 @@ packages:
   jsbi@4.3.2:
     resolution: {integrity: sha512-9fqMSQbhJykSeii05nxKl4m6Eqn2P6rOlYiS+C5Dr/HPIU/7yZxu5qzbs40tgaFORiw2Amd0mirjxatXYMkIew==}
 
+  lodash@4.18.1:
+    resolution: {integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==}
+
   urlpattern-polyfill@10.1.0:
     resolution: {integrity: sha512-IGjKp/o0NL3Bso1PymYURCJxMPNAf/ILOpendP9f5B6e1rTJgdgiOvgfoT8VxCAdY+Wisb9uhGaJJf3yZ2V9nw==}
 
@@ -51,5 +60,7 @@ snapshots:
   '@petamoriken/float16@3.9.3': {}
 
   jsbi@4.3.2: {}
+
+  lodash@4.18.1: {}
 
   urlpattern-polyfill@10.1.0: {}

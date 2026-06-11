@@ -2906,6 +2906,7 @@ dependencies = [
  "aube-lockfile",
  "aube-manifest",
  "aube-settings",
+ "aube-util",
  "aube-workspace",
  "clap",
  "dirs-next",

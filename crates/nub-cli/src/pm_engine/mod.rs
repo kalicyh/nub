@@ -577,6 +577,10 @@ pub(crate) struct EngineSession {
 /// land after it (they feed settings resolution, which no detection-path
 /// code consults).
 pub(crate) fn engine_session(dir: Option<&Path>) -> Result<EngineSession> {
+    // Initialize the diagnostics recorder from AUBE_DIAG_* env vars so that
+    // `AUBE_DIAG_SUMMARY=1 nub install` works the same as `AUBE_DIAG_SUMMARY=1
+    // aube install`. The OnceLock inside diag::init() makes this idempotent.
+    aube_util::diag::init();
     apply_dir(dir)?;
     engine_brand_preflight();
     let cwd = std::env::current_dir()?;

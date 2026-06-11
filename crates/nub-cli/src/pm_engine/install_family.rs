@@ -1019,6 +1019,10 @@ fn yarn_drift_reason(dir: &Path) -> Option<String> {
 /// yarn write-gate message.
 fn run_engine(session: &EngineSession, opts: InstallOptions, yarn_gated: bool) -> Result<i32> {
     let result = session.runtime.block_on(aube::commands::install::run(opts));
+    // Flush the diagnostics recorder (summary table, critical-path, etc.) so
+    // that AUBE_DIAG_* env vars work end-to-end via `nub install`. aube's own
+    // CLI entry flushes from lib.rs; the library path needs an explicit call.
+    aube_util::diag::flush();
     match result {
         Ok(()) => Ok(0),
         // Frozen-drift on a gated yarn project: the install *would* rewrite
