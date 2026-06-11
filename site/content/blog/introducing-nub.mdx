@@ -167,12 +167,13 @@ Nub resolves the right Node for every project implicitly — from `.node-version
 ```sh
 $ echo 26 > .node-version
 $ nub hello.ts
-Installing Node 26.3.0 from nodejs.org (29 MB) — resolved from .node-version (26)...
-✓ Installed Node 26.3.0 in 6.8s
+Using Node.js 26.3.0 (resolved from .node-version)
+Installing from nodejs.org... (29 MB)
+Installed in 9.8s
 Hello world!
 ```
 
-For the rare day you want manual control, the explicit commands exist — no shell hooks, no `PATH` munging:
+The explicit commands exist too — no shell hooks, no `PATH` munging:
 
 ```sh
 nub node install 26     # install a version
@@ -183,7 +184,22 @@ nub node uninstall 22   # remove a version
 
 ## Modern APIs
 
-These work on every Node version Nub supports — polyfilled where Node hasn't shipped them, unflagged where Node gates them. Credit where it's due: Node has been closing this gap itself (`WebSocket` in 22.5, `node:sqlite` in 22.13, `URLPattern` in 24, `localStorage` in 25, `Temporal` in 26). The list below is a moving target by design — each item bridges the LTS you're on today to the LTS you'll be on tomorrow, and as your Node floor rises the polyfills feature-detect, defer, and disappear. Same code, no migration.
+These work on every Node version Nub supports — polyfilled where Node hasn't shipped them, unflagged where Node gates them. Credit where it's due: Node has been closing this gap itself. The table is a moving target by design — each row bridges the LTS you're on today to the LTS you'll be on tomorrow, and as your Node floor rises the polyfills feature-detect, defer, and disappear. Same code, no migration.
+
+**Native** — Node ships it; Nub steps aside entirely. **Unflagged** — Node implements it behind an `--experimental-*` flag; Nub injects the flag. **Polyfilled** — Nub preloads an established community polyfill until your Node floor reaches the native line.
+
+| API | Native since | On older supported Nodes |
+|---|---|---|
+| `Worker` | — | polyfilled over `node:worker_threads` |
+| `Temporal` | Node 26 | polyfilled |
+| `URLPattern` | Node 24 | polyfilled |
+| `WebSocket` | Node 22.5 | unflagged on 22.0–22.4, polyfilled below |
+| `EventSource` | — | unflagged |
+| `localStorage` / `sessionStorage` | Node 25 | unflagged, plus a default `--localstorage-file` on every version |
+| `vm.Module` | — | unflagged |
+| `node:sqlite` | Node 22.13 | unflagged |
+| `RegExp.escape` · `Error.isError` · `Promise.try` · `Float16Array` | Node 24 | polyfilled |
+| Iterator helpers | Node 22 | polyfilled |
 
 ### `Worker`
 
@@ -281,18 +297,6 @@ Finished TC39 methods — native on Node 24+, polyfilled on older lines, each on
 - [`Promise.try`](https://github.com/tc39/proposal-promise-try) — start a chain from a sync-or-async function.
 - [`Float16Array`](https://github.com/tc39/proposal-float16array) — plus `DataView.getFloat16` / `setFloat16` and `Math.f16round`. One real caveat: the polyfill is ~3× slower than V8's hardware-FP16 path, so pin Node 24+ for ML-inference hot loops.
 - [Iterator helpers](https://github.com/tc39/proposal-iterator-helpers) — `Iterator.from` / `map` / `filter` / …, native on Node 22+.
-
-### Zero Nub-specific APIs, zero lock-in
-
-There are no Nub-specific APIs.
-
-- No `Nub` global
-- No `nub:*` module namespace
-- No `@nub/*` npm scope
-- No `NUB_*` environment variables
-- No `"nub"` field in `package.json`
-
-The brand stops at the binary boundary. Everything Nub ships is a web platform standard (WHATWG / W3C / WinterTC), a TC39 proposal, an unflagged Node.js feature, or a pragmatic affordance for ecosystem compatibility (usually TypeScript). Remove Nub tomorrow and your code keeps working, unchanged.
 
 ## `nub watch` — built-in watch mode
 
@@ -431,6 +435,18 @@ using pnpm@9.15.9
   package.json: packageManager = pnpm@9.15.9 (+sha512)
   pnpm-lock.yaml: kept (already pnpm's format)
 ```
+
+## Zero Nub-specific APIs, zero lock-in
+
+There are no Nub-specific APIs.
+
+- No `Nub` global
+- No `nub:*` module namespace
+- No `@nub/*` npm scope
+- No `NUB_*` environment variables
+- No `"nub"` field in `package.json`
+
+The brand stops at the binary boundary. Everything Nub ships is a web platform standard (WHATWG / W3C / WinterTC), a TC39 proposal, an unflagged Node.js feature, or a pragmatic affordance for ecosystem compatibility (usually TypeScript). Remove Nub tomorrow and your code keeps working, unchanged.
 
 ## FAQ
 

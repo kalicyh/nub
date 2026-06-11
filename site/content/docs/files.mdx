@@ -237,6 +237,21 @@ const worker = new Worker(new URL("./w.ts", import.meta.url), { type: "module" }
 
 The storage globals — `localStorage` / `sessionStorage` — also work without you setting `--localstorage-file`; Nub defaults the storage file under `~/.cache/nub` so persistence just works. And `reportError`, `vm.Module` (used by Jest/Vitest), and `node:sqlite` are likewise available where Node still gates them.
 
+**Native** — Node ships it; Nub steps aside entirely. **Unflagged** — Node implements it behind an `--experimental-*` flag; Nub injects the flag. **Polyfilled** — Nub preloads an established community polyfill until your Node floor reaches the native line.
+
+| API | Native since | On older supported Nodes |
+|---|---|---|
+| `Worker` | — | polyfilled over `node:worker_threads` |
+| `Temporal` | Node 26 | polyfilled |
+| `URLPattern` | Node 24 | polyfilled |
+| `WebSocket` | Node 22.5 | unflagged on 22.0–22.4, polyfilled below |
+| `EventSource` | — | unflagged |
+| `localStorage` / `sessionStorage` | Node 25 | unflagged, plus a default `--localstorage-file` on every version |
+| `vm.Module` | — | unflagged |
+| `node:sqlite` | Node 22.13 | unflagged |
+| `RegExp.escape` · `Error.isError` · `Promise.try` · `Float16Array` | Node 24 | polyfilled |
+| Iterator helpers | Node 22 | polyfilled |
+
 ## The Node version
 
 Nub doesn't ship a Node runtime — it runs your code on stock Node. It resolves which Node to use from your project, and will fetch one for you if it's missing. To drive the cache by hand — pre-install a version, list what's cached, remove one, or write a pin — see [Managing Node versions](/docs/node).
@@ -250,8 +265,9 @@ $ cat .nvmrc
 22.15.0
 
 $ nub index.ts
-Installing Node 22.15.0 from nodejs.org (24 MB) — resolved from .nvmrc...
-✓ Installed Node 22.15.0 in 5.4s
+Using Node.js 22.15.0 (resolved from .nvmrc)
+Installing from nodejs.org... (24 MB)
+Installed in 5.6s
 # ...your script runs, on exactly the Node you pinned
 ```
 

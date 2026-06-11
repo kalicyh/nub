@@ -632,8 +632,8 @@ function NodeVersionBand() {
                 lines={[
                   { cmd: 'echo 26 > .node-version' },
                   { cmd: 'nub hello.ts' },
-                  { out: 'Installing Node 26.3.0 from nodejs.org (29 MB) — resolved from .node-version (26)...' },
-                  { out: '✓ Installed Node 26.3.0 in 6.8s' },
+                  { out: 'Using Node.js 26.3.0 (resolved from .node-version)' },
+                  { out: 'Installed in 9.8s' },
                   { out: 'Hello world!' },
                 ]}
               />
