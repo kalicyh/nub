@@ -1,0 +1,77 @@
+name: Docker install smoke
+
+# Verifies the built Linux nub binary in clean containers — the glibc (node:22-slim)
+# and musl (node:22-alpine) environments that the dev box (macOS) and `cargo test`
+# cannot exercise. Covers: binary starts, TS transpile, nub run, PM install + module
+# load, and the brand-boundary check.
+#
+# Why a separate workflow (not a job in ci.yml): the Docker builds compile Rust from
+# scratch inside the container and are slow (~10 min each). A path filter here ensures
+# this job fires only when the binary or runtime changed — not on every wiki or doc
+# commit.
+#
+# The two variants (glibc, musl) run in parallel as separate jobs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "runtime/**"
+      - "vendor/aube"
+      - "tests/docker-smoke/**"
+      - ".github/workflows/docker-smoke.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "runtime/**"
+      - "vendor/aube"
+      - "tests/docker-smoke/**"
+      - ".github/workflows/docker-smoke.yml"
+
+jobs:
+  glibc:
+    name: Docker smoke (glibc, node:22-slim)
+    runs-on: ubuntu-latest
+    # Rust compile inside Docker + the smoke install can take a while on a cold runner.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Init vendor/aube submodule
+        run: git submodule update --init vendor/aube
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build glibc image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: tests/docker-smoke/Dockerfile.glibc
+          tags: nub-smoke:glibc
+          load: true
+          cache-from: type=gha,scope=docker-smoke-glibc
+          cache-to: type=gha,mode=max,scope=docker-smoke-glibc
+      - name: Run glibc smoke
+        run: docker run --rm nub-smoke:glibc
+
+  musl:
+    name: Docker smoke (musl, node:22-alpine)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Init vendor/aube submodule
+        run: git submodule update --init vendor/aube
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build musl image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: tests/docker-smoke/Dockerfile.musl
+          tags: nub-smoke:musl
+          load: true
+          cache-from: type=gha,scope=docker-smoke-musl
+          cache-to: type=gha,mode=max,scope=docker-smoke-musl
+      - name: Run musl smoke
+        run: docker run --rm nub-smoke:musl

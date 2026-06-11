@@ -1,0 +1,63 @@
+name: Daily-driver smoke
+
+# Exercises the full nub surface against a real Vite + React + TypeScript project.
+# Covers: PM install (pnpm, real registry), type-check (tsc), build (Vite), test
+# (vitest), `nub <file.ts>` with a real node_modules import, and `nub --node`
+# augmentation-off negative control.
+#
+# This is the "would a real app still work after this change?" gate. It is the
+# complement to cargo test's synthetic fixtures: those cover individual code paths;
+# this covers the composed surface a user actually sees.
+#
+# Why separate workflow: the fixture installs ~300 packages (Vite + React + vitest)
+# from the real registry. That's too heavy for the main ci.yml matrix. A path filter
+# fires this only when nub itself (crates/, runtime/, vendor/aube) changed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "runtime/**"
+      - "vendor/aube"
+      - "tests/daily-driver/**"
+      - ".github/workflows/daily-driver.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "runtime/**"
+      - "vendor/aube"
+      - "tests/daily-driver/**"
+      - ".github/workflows/daily-driver.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  daily-driver:
+    name: Daily-driver (ubuntu, node 24)
+    runs-on: ubuntu-latest
+    # Real registry install + Vite build + vitest can be slow on cold runners.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Init vendor/aube submodule
+        run: git submodule update --init vendor/aube
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+      - name: Build nub + native addon
+        shell: bash
+        run: |
+          cargo build -p nub-cli -p nub-native
+          mkdir -p runtime/addons
+          cp target/debug/libnub_native.so runtime/addons/nub-native.node
+      - name: Run daily-driver smoke
+        run: tests/daily-driver/run.sh target/debug/nub

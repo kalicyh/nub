@@ -1,0 +1,32 @@
+# Docker install smoke — glibc (node:22-slim, Debian-based).
+#
+# Builds a Linux nub binary from source in the `builder` stage, then layers it
+# onto a clean node:22-slim image with no ~/.cache/nub, no global dev tools, no
+# dev-box state — the honest environment a first-run glibc user sees. Runs the
+# smoke script from tests/docker-smoke/smoke.sh inside the container.
+#
+# Build + run:
+#   docker build -f tests/docker-smoke/Dockerfile.glibc -t nub-smoke:glibc .
+#   docker run --rm nub-smoke:glibc
+#
+# Or use docker-smoke.sh which wraps both for all variants.
+
+# ── builder: compile a Linux glibc nub + native addon ────────────────────────
+FROM rust:1-bookworm AS builder
+WORKDIR /src
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo build --release -p nub-cli -p nub-native && \
+    mkdir -p /out/runtime && cp -r runtime/. /out/runtime/ && \
+    mkdir -p /out/runtime/addons && \
+    cp target/release/libnub_native.so /out/runtime/addons/nub-native.node && \
+    cp target/release/nub /out/nub
+
+# ── runner: layer nub onto a clean node:22-slim ───────────────────────────────
+FROM node:22-slim
+WORKDIR /work
+COPY --from=builder /out/nub /opt/nub/bin/nub
+COPY --from=builder /out/runtime /opt/nub/runtime
+COPY tests/docker-smoke/smoke.sh /opt/nub/tests/docker-smoke/smoke.sh
+CMD ["/opt/nub/tests/docker-smoke/smoke.sh", "/opt/nub/bin/nub"]
