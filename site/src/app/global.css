@@ -103,6 +103,18 @@ h1, h2, h3, h4, .font-display {
   margin-top: 2.25rem;
 }
 
+/* Tables: auto layout hands the first column most of the row when later
+   columns wrap. Shrink the first two columns to their content (width:1% +
+   nowrap) so the prose-length last column gets the remaining space. */
+.blog-prose table {
+  width: 100%;
+}
+.blog-prose th:not(:last-child),
+.blog-prose td:not(:last-child) {
+  width: 1%;
+  white-space: nowrap;
+}
+
 /* Blockquotes as editorial asides — a hairline ember rule on a faint card,
    roman (not italic), no inserted quotation marks. The default prose
    blockquote reads as an unstyled gray slab against this page. */
