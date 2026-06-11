@@ -434,6 +434,40 @@ pub fn declared_pm_raw(cwd: &Path) -> Option<(String, Option<String>)> {
     Some((name, version))
 }
 
+/// The workspace-root `packageManager` field decomposed as
+/// `(name, exact_version, sha512_hex)` — but ONLY when it pins an EXACT semver
+/// WITH a `+sha512.<hex>` suffix (`pnpm@9.1.0+sha512.abc…`). Returns `None` for
+/// every weaker shape: no `packageManager` field, a devEngines-only pin, a
+/// range/dist-tag version, or an exact version with no hash. This is the
+/// warm-exact-re-pin reader — `nub pm use <pm>@<exact>` consults it to decide
+/// whether the pin hash it would otherwise recompute already lives on disk
+/// (only the `packageManager` field is read; devEngines is a range expression of
+/// intent, never an exact+hash pin nub could trust without re-fetching).
+pub fn declared_package_manager_exact_hash(cwd: &Path) -> Option<(String, String, String)> {
+    let manifest = root_manifest(cwd)?;
+    let spec = manifest
+        .get("packageManager")
+        .and_then(|v| v.as_str())?
+        .trim();
+    let (name, version_with_suffix) = spec.split_once('@')?;
+    if name.is_empty() {
+        return None;
+    }
+    let (version, suffix) = version_with_suffix.split_once('+')?;
+    // The suffix must be exactly `sha512.<hex>` — the shape write_declared_pm
+    // commits. Anything else (a build-metadata tag, a different algo) is not a
+    // pin hash nub can reuse.
+    let hex = suffix.strip_prefix("sha512.")?;
+    if hex.is_empty() {
+        return None;
+    }
+    // The version must be a concrete X.Y.Z — a range/dist-tag never reaches the
+    // packageManager field in nub's own writes, but a hand-edited manifest could
+    // carry one, and those MUST still resolve+fetch.
+    semver::Version::parse(version).ok()?;
+    Some((name.to_string(), version.to_string(), hex.to_string()))
+}
+
 pub fn project_pm_identity(cwd: &Path) -> Option<PmIdentity> {
     if committed_yarn_path(cwd).is_some() {
         return Some(PmIdentity {

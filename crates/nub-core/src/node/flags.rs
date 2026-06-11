@@ -105,7 +105,7 @@ pub fn test_coverage_exclude_supported(node_version: &NodeVersion) -> bool {
 /// | below-floor flags (18.19)         | `--experimental-webstorage`, `--disable-warning`, `--test-coverage-exclude` | **exit 9 "bad option"** | band-gated OUT (never injected there) |
 ///
 /// (Webstorage's flag/file pair is injected in `spawn.rs`, not here — its
-/// suppression is granular and lives in `user_webstorage_ownership`; see there.)
+/// suppression is granular and lives in `user_webstorage_suppression`; see there.)
 pub fn compute_inject_flags(
     node_version: NodeVersion,
     user_argv: &[String],

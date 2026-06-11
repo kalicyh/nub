@@ -4032,6 +4032,54 @@ fn resolve_provision_declare(
         bail!(berry_pin_refusal(cwd));
     }
 
+    // Warm exact re-pin short-circuit: when the user asks for the EXACT version
+    // the manifest already pins (with a `+sha512.<hex>` suffix nub itself wrote)
+    // AND that version is already extracted in the store, the pin hash and the
+    // bytes both already exist — re-fetching the tarball just to recompute a hash
+    // we have on disk is pure waste. Skip the network entirely and reuse the
+    // committed hex. This skips ONLY the fetch+provision; the declaration /
+    // devEngines / lockfile-alignment work downstream still runs, so `use` stays
+    // idempotent. Guarded so it CANNOT misfire: the spec must be a concrete
+    // semver (ranges/dist-tags still resolve+fetch — they might point somewhere
+    // new), the committed pin must name the SAME pm@version with a hash, and the
+    // store must be warm (a cold store still needs bytes to install). bun is
+    // excluded — it has no store, so its `short_circuit_pm` is `None` and the
+    // declaration-only path below handles it. yarn@>=2 already bailed above.
+    let short_circuit_pm = match name {
+        "npm" => Some(Pm::Npm),
+        "pnpm" => Some(Pm::Pnpm),
+        // yarn@>=2 (Berry) already bailed above; only yarn classic reaches here.
+        // A defensive `None` (not `unreachable!`) keeps a future gate change from
+        // turning a Berry exact into a panic — it just declines the short-circuit.
+        "yarn" if leading_major(spec).is_some_and(|m| m >= 2) => None,
+        "yarn" => Some(Pm::Yarn),
+        _ => None,
+    };
+    if let Some(pm) = short_circuit_pm {
+        if semver::Version::parse(spec).is_ok() {
+            if let Some((decl_name, decl_version, decl_hex)) =
+                resolve::declared_package_manager_exact_hash(cwd)
+            {
+                let store = pm_store_root()?;
+                if decl_name == name
+                    && decl_version == spec
+                    && provision::pm_version_cached(pm, spec, &store)
+                {
+                    // No `Fetching` line — nothing was fetched. Run the normal
+                    // declaration/devEngines write with the on-disk hash.
+                    let write = resolve::write_declared_pm(
+                        name,
+                        &decl_version,
+                        &decl_hex,
+                        cwd,
+                        maintain_dev_engines,
+                    )?;
+                    return Ok((decl_version, write));
+                }
+            }
+        }
+    }
+
     // The full authed config from the PROJECT dir — pin was the one remaining
     // no-auth caller of the registry stack, 401ing against private mirrors that
     // every other path (shim provision, update) already authenticated against.

@@ -977,6 +977,80 @@ fn webstorage_persists_across_runs_and_is_off_under_node_flag() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A user-supplied POSITIVE `--experimental-webstorage` must NOT disable nub's
+/// store: under the current semantics (spawn.rs `WebstorageSuppress`, 2026-06-11)
+/// a positive flag no longer suppresses anything — nub still injects its
+/// `--localstorage-file`, so `localStorage` is live and persists. The old
+/// "positive flag = manual control = suppress both" semantics left the global
+/// DEAD (no file → `localStorage` undefined on 22.4–24.x). This guards the
+/// reversal end-to-end: setItem must round-trip across two invocations that BOTH
+/// pass the user's own `--experimental-webstorage`.
+///
+/// Band: gated `>=22.4` like its siblings. NOT skipped on `>=25`: there the
+/// positive flag is a native no-op (webstorage is on without it), but nub still
+/// injects the file, so a WORKING/persistent `localStorage` is exactly what the
+/// assertion checks — it stays meaningful across the whole 22.4+ band.
+#[test]
+fn user_positive_webstorage_flag_still_gets_a_working_localstorage() {
+    if !node_at_least((22, 4, 0)) {
+        eprintln!("skipping: webstorage needs Node >= 22.4 (target is older)");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("nub-ws-userpos-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("package.json"), r#"{"name":"ws-userpos"}"#).unwrap();
+    let cache = dir.join("cache");
+
+    std::fs::write(
+        dir.join("set.js"),
+        "localStorage.setItem('k', 'kept'); console.log('SET_OK');",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("get.js"),
+        "console.log('GOT:' + (localStorage.getItem('k') ?? 'MISSING'));",
+    )
+    .unwrap();
+
+    // BOTH runs carry the user's own positive flag (argv, ahead of the file).
+    let run = |script: &str| {
+        let out = Command::new(nub_binary())
+            .args(["--experimental-webstorage", script])
+            .current_dir(&dir)
+            .env("XDG_CACHE_HOME", &cache)
+            .output()
+            .expect("failed to spawn nub");
+        (
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+            out.status.code().unwrap_or(-1),
+        )
+    };
+
+    let (set_out, set_err, set_code) = run("set.js");
+    assert_eq!(
+        set_code, 0,
+        "set under a user --experimental-webstorage must not crash: stderr={set_err}\nstdout={set_out}"
+    );
+    assert!(
+        set_out.contains("SET_OK"),
+        "localStorage.setItem must work with the user's positive flag; stdout={set_out:?} stderr={set_err:?}"
+    );
+
+    let (get_out, get_err, get_code) = run("get.js");
+    assert_eq!(
+        get_code, 0,
+        "get run failed: stderr={get_err}\nstdout={get_out}"
+    );
+    assert!(
+        get_out.contains("GOT:kept"),
+        "the positive flag must NOT suppress nub's file — the value must persist; got {get_out:?} stderr={get_err:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Regression for the unquoted-NODE_OPTIONS BLOCKER: a `--localstorage-file` whose
 /// path contains a SPACE must survive Node's NODE_OPTIONS tokenizer, which splits
 /// unquoted runs on spaces. The script-runner path (`nub run`) carries webstorage

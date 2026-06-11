@@ -200,6 +200,19 @@ fn cached_bin(pm_store: &Path, version: &str) -> Option<PathBuf> {
     bin.is_file().then_some(bin)
 }
 
+/// True when `version` of `pm` is already extracted and runnable in the store —
+/// the exact predicate [`provision_pm_from_tarball`]'s cache-hit arm trusts
+/// (`cached_bin` over the same `<store_root>/pm/<pm>/<version>/package` path).
+///
+/// The warm-exact-re-pin seam: `nub pm use <pm>@<exact>` consults this to decide
+/// whether it can skip the network entirely (the pin hash already lives in the
+/// manifest; the bytes are only needed when the store is cold). A `false` here
+/// means "not present or incomplete" — the caller must then fetch.
+pub fn pm_version_cached(pm: super::Pm, version: &str, store_root: &Path) -> bool {
+    let pm_store = store_root.join("pm").join(pm.to_string());
+    cached_bin(&pm_store, version).is_some()
+}
+
 /// The highest cached version satisfying a range spec, with its bin. Offline
 /// counterpart of [`registry::resolve_dist`]'s range arm: same node-semver→Cargo
 /// bridge, same highest-match rule, but over the store's version-named dirs

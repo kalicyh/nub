@@ -303,7 +303,7 @@ pub fn spawn_node(config: &SpawnConfig<'_>) -> Result<SpawnResult> {
         //     rides alongside harmlessly.
         // Below 22.4 both flags are "bad option" — the compat tier runs without
         // them. (These are argv, not NODE_OPTIONS, so no quoting is needed.)
-        let own = user_webstorage_ownership(config.user_args, node_options.as_deref());
+        let own = user_webstorage_suppression(config.user_args, node_options.as_deref());
         if !own.flag && flags::webstorage_flag_needed(&config.node.version) {
             cmd.arg("--experimental-webstorage");
         }
@@ -518,7 +518,7 @@ pub fn spawn_node(config: &SpawnConfig<'_>) -> Result<SpawnResult> {
         // NODE_OPTIONS, but the value is identical (nub's computed path), so the
         // last-wins duplicate is a harmless no-op — same shape as the preload token,
         // which already rides both surfaces.
-        let own_env = user_webstorage_ownership(config.user_args, existing_opts.as_deref());
+        let own_env = user_webstorage_suppression(config.user_args, existing_opts.as_deref());
         if !own_env.flag && flags::webstorage_flag_needed(&config.node.version) {
             node_opts_parts.push("--experimental-webstorage".to_string());
         }
@@ -813,13 +813,13 @@ pub fn compute_augmentation_env(
     // experimental flag only on 22.4–24.x (native at 25+), the --localstorage-file
     // on every Node >= 22.4 (it's what actually exposes + persists the global).
     // Granular user suppression (same rule as `spawn_node`, see
-    // `user_webstorage_ownership`): a user `--localstorage-file` (argv/NODE_OPTIONS)
+    // `user_webstorage_suppression`): a user `--localstorage-file` (argv/NODE_OPTIONS)
     // suppresses only nub's file; `--no-experimental-webstorage` suppresses both;
     // a positive `--experimental-webstorage` suppresses nothing (idempotent dup).
     // Below 22.4 both flags are "bad option" and abort the process — so
     // version-gated. The value is quoted so a spacey cache path survives Node's
     // NODE_OPTIONS tokenizer (finding 1/3).
-    let own = user_webstorage_ownership(&[], existing_node_options.as_deref());
+    let own = user_webstorage_suppression(&[], existing_node_options.as_deref());
     if !own.flag && flags::webstorage_flag_needed(&node_version) {
         node_opts_parts.push("--experimental-webstorage".to_string());
     }
@@ -1131,7 +1131,7 @@ struct WebstorageSuppress {
     flag: bool,
 }
 
-fn user_webstorage_ownership(
+fn user_webstorage_suppression(
     user_args: &[String],
     node_options: Option<&str>,
 ) -> WebstorageSuppress {
@@ -1414,7 +1414,7 @@ mod tests {
         //   • a user `--localstorage-file` suppresses ONLY nub's file.
         let own = |args: &[&str], env: Option<&str>| {
             let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-            user_webstorage_ownership(&args, env)
+            user_webstorage_suppression(&args, env)
         };
 
         // Baseline: nothing set → nub injects both pieces.

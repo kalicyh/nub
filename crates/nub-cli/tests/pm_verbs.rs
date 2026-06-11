@@ -576,3 +576,85 @@ fn create_runs_a_real_scaffolder_via_the_dlx_path() {
         "the scaffolded manifest is create-vite's vanilla template"
     );
 }
+
+/// Fabricate a warm pnpm store entry at `<XDG_CACHE_HOME>/nub/pm/pnpm/<v>/` —
+/// the layout `cached_bin` reads (`package/package.json` with a `bin` map plus
+/// the named bin file present). Enough to satisfy `provision::pm_version_cached`
+/// without a real download, so the offline short-circuit can be exercised.
+fn seed_pnpm_store(cache: &Path, version: &str) {
+    let pkg = cache.join("nub/pm/pnpm").join(version).join("package");
+    std::fs::create_dir_all(pkg.join("bin")).unwrap();
+    std::fs::write(
+        pkg.join("package.json"),
+        format!(r#"{{"name":"pnpm","version":"{version}","bin":{{"pnpm":"bin/pnpm.cjs"}}}}"#),
+    )
+    .unwrap();
+    std::fs::write(pkg.join("bin/pnpm.cjs"), "// fake pnpm bin\n").unwrap();
+}
+
+/// The warm exact re-pin short-circuit: when the manifest already pins
+/// `pnpm@<exact>+sha512.<hex>` and that version is extracted in the store,
+/// `nub pm use pnpm@<exact>` must reuse the on-disk hash and touch zero network —
+/// no `Fetching` line, declaration preserved verbatim. A `.npmrc` aimed at a dead
+/// port makes any stray fetch fail loudly, so a clean exit IS the zero-download
+/// proof. The companion assertion: a RANGE spec (`pnpm@^9`) does NOT short-circuit
+/// — it must resolve through the registry and so dies against the dead port.
+#[test]
+fn warm_exact_re_pin_skips_the_network_while_a_range_still_resolves() {
+    let dir = pm_tmpdir("warmpin");
+    let (data, cache) = (pm_tmpdir("warmpin-data"), pm_tmpdir("warmpin-cache"));
+    let version = "9.1.0";
+    // The committed hex is reused verbatim, never re-verified — its value is
+    // irrelevant to the short-circuit, only its `+sha512.` shape matters.
+    let declared =
+        r#"{"name":"warmpin","version":"1.0.0","packageManager":"pnpm@9.1.0+sha512.deadbeef"}"#;
+    std::fs::write(dir.join("package.json"), declared).unwrap();
+    // Dead registry: any fetch/resolve that reaches the network fails fast.
+    std::fs::write(dir.join(".npmrc"), "registry=http://127.0.0.1:1/\n").unwrap();
+    seed_pnpm_store(&cache, version);
+
+    let spawn = |args: &[&str]| -> Output {
+        let out = Command::new(nub_binary())
+            .args(args)
+            .current_dir(&dir)
+            .env("XDG_DATA_HOME", &data)
+            .env("XDG_CACHE_HOME", &cache)
+            .env_remove("npm_config_registry") // a dev-box override can't reroute the dead port
+            .output()
+            .expect("failed to spawn nub");
+        Output {
+            stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+            code: out.status.code().unwrap_or(-1),
+        }
+    };
+
+    // Warm exact re-pin: zero network, no Fetching line, declaration kept.
+    let warm = spawn(&["pm", "use", "pnpm@9.1.0"]);
+    assert_eq!(
+        warm.code, 0,
+        "warm exact re-pin must succeed offline:\nstdout: {}\nstderr: {}",
+        warm.stdout, warm.stderr
+    );
+    assert!(
+        !warm.combined().contains("Fetching"),
+        "nothing was fetched, so no Fetching line may print:\n{}",
+        warm.combined()
+    );
+    let after = std::fs::read_to_string(dir.join("package.json")).unwrap();
+    assert!(
+        after.contains("\"pnpm@9.1.0+sha512.deadbeef\""),
+        "the existing exact+hash pin must survive the re-pin verbatim:\n{after}"
+    );
+    warm.assert_brand_clean();
+
+    // A range spec is NOT the same version literal — it must resolve through the
+    // registry, which is dead here, so it fails. (Proves the short-circuit is
+    // gated to exact specs, never ranges/dist-tags.)
+    let range = spawn(&["pm", "use", "pnpm@^9"]);
+    assert_ne!(
+        range.code, 0,
+        "a range spec must resolve via the registry (dead here), not short-circuit:\nstdout: {}\nstderr: {}",
+        range.stdout, range.stderr
+    );
+}
