@@ -48,6 +48,12 @@ pub fn webstorage_supported(node_version: &NodeVersion) -> bool {
 /// the `--localstorage-file` path). Only on the 22.4–24.x band where the feature is
 /// still flag-gated; on 25+ the flag defaults on, so injecting it is unnecessary
 /// (and we leave it off to stay close to plain-Node argv).
+///
+/// Edge case (benign): a 25.0.0 PRERELEASE (e.g. `25.0.0-rc.1`) sorts BELOW 25.0.0
+/// under semver precedence, so it falls in-band here and gets the experimental flag
+/// injected. On a 25.x build the flag is already a default-on no-op alias (accepted,
+/// not a "bad option"), so this is harmless — no behavior change, just an extra
+/// no-op token on the rare RC. Not worth special-casing prereleases.
 pub fn webstorage_flag_needed(node_version: &NodeVersion) -> bool {
     *node_version >= MIN_WEBSTORAGE && *node_version < MIN_WEBSTORAGE_NATIVE
 }
@@ -159,9 +165,9 @@ impl UnflagEntry {
     /// Whether this flag should be injected for `node_version` — true iff the
     /// version lands in any `[lo, hi)` band.
     fn applies_to(&self, node_version: &NodeVersion) -> bool {
-        self.bands.iter().any(|(lo, hi)| {
-            *node_version >= *lo && hi.as_ref().is_none_or(|hi| node_version < hi)
-        })
+        self.bands
+            .iter()
+            .any(|(lo, hi)| *node_version >= *lo && hi.as_ref().is_none_or(|hi| node_version < hi))
     }
 }
 

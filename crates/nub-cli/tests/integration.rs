@@ -973,6 +973,139 @@ fn webstorage_persists_across_runs_and_is_off_under_node_flag() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Regression for the unquoted-NODE_OPTIONS BLOCKER: a `--localstorage-file` whose
+/// path contains a SPACE must survive Node's NODE_OPTIONS tokenizer, which splits
+/// unquoted runs on spaces. The script-runner path (`nub run`) carries webstorage
+/// via NODE_OPTIONS (scripts run under a shell, so flags travel through the env,
+/// not argv) — so a spacey `XDG_CACHE_HOME` here exercises the exact path that
+/// silently dropped persistence (exit 0, value gone) before quoting was added.
+#[test]
+fn webstorage_persists_through_node_options_with_spacey_cache_path() {
+    let dir = std::env::temp_dir().join(format!("nub-ws-space-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("package.json"), r#"{"name":"ws-space"}"#).unwrap();
+    // The space is the whole point — the previously-broken case.
+    let cache = dir.join("nub cache dir");
+
+    std::fs::write(
+        dir.join("set.js"),
+        "localStorage.setItem('k', 'persisted'); console.log('SET_OK');",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("get.js"),
+        "console.log('GOT:' + (localStorage.getItem('k') ?? 'MISSING'));",
+    )
+    .unwrap();
+
+    let run = |script: &str| {
+        // `nub run <script>` routes webstorage through NODE_OPTIONS (vs. `nub <file>`,
+        // which uses argv) — the assembly path the BLOCKER lived in.
+        let out = Command::new(nub_binary())
+            .args(["run", script])
+            .current_dir(&dir)
+            .env("XDG_CACHE_HOME", &cache)
+            .output()
+            .expect("failed to spawn nub");
+        (
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+            out.status.code().unwrap_or(-1),
+        )
+    };
+    // Use package.json scripts so the runner takes the NODE_OPTIONS path.
+    std::fs::write(
+        dir.join("package.json"),
+        r#"{"name":"ws-space","scripts":{"set":"node set.js","get":"node get.js"}}"#,
+    )
+    .unwrap();
+
+    let (set_out, set_err, set_code) = run("set");
+    assert_eq!(
+        set_code, 0,
+        "set run failed: stderr={set_err}\nstdout={set_out}"
+    );
+    assert!(
+        set_out.contains("SET_OK"),
+        "set stdout: {set_out:?} stderr: {set_err:?}"
+    );
+
+    let (get_out, get_err, get_code) = run("get");
+    assert_eq!(
+        get_code, 0,
+        "get run failed: stderr={get_err}\nstdout={get_out}"
+    );
+    assert!(
+        get_out.contains("GOT:persisted"),
+        "value must persist through a spacey-cache NODE_OPTIONS path; got stdout: {get_out:?} stderr: {get_err:?}"
+    );
+
+    // The store really landed under the spacey cache dir (not a fragmented path).
+    let ws_root = cache.join("nub").join("webstorage");
+    assert!(
+        ws_root.is_dir(),
+        "webstorage dir must exist under the spacey cache: {ws_root:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A user-set `NODE_OPTIONS=--localstorage-file=<their path>` must win: nub must
+/// NOT clobber it with its own workspace store (the owner's no-clobber rule). The
+/// user's file gets the data; nub's cache dir stays empty of a webstorage store.
+#[test]
+fn user_node_options_localstorage_file_is_not_clobbered() {
+    let dir = std::env::temp_dir().join(format!("nub-ws-userfile-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("package.json"), r#"{"name":"ws-userfile"}"#).unwrap();
+    let cache = dir.join("cache");
+    let user_store = dir.join("mine.sqlite");
+
+    std::fs::write(
+        dir.join("set.js"),
+        "localStorage.setItem('k', 'userland'); console.log('SET_OK');",
+    )
+    .unwrap();
+
+    let out = Command::new(nub_binary())
+        .args(["set.js"])
+        .current_dir(&dir)
+        .env("XDG_CACHE_HOME", &cache)
+        .env(
+            "NODE_OPTIONS",
+            format!("--localstorage-file={}", user_store.display()),
+        )
+        .output()
+        .expect("failed to spawn nub");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "set failed: stderr={stderr}\nstdout={stdout}"
+    );
+    assert!(
+        stdout.contains("SET_OK"),
+        "stdout: {stdout:?} stderr: {stderr:?}"
+    );
+
+    // The user's file got the data.
+    assert!(
+        user_store.is_file(),
+        "user's --localstorage-file must be the store: {user_store:?} not found (stderr {stderr:?})"
+    );
+    // nub did NOT also stand up its own workspace store under the cache.
+    let nub_ws = cache.join("nub").join("webstorage");
+    assert!(
+        !nub_ws.exists(),
+        "nub must NOT clobber the user's NODE_OPTIONS store with its own; found {nub_ws:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Workspace topological ordering: core (no deps) before utils (depends
 /// on core) before app (depends on utils).
 #[test]

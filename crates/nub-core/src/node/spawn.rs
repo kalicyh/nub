@@ -172,6 +172,13 @@ pub struct SpawnConfig<'a> {
     pub env_vars: &'a std::collections::HashMap<String, String>,
     /// Project root directory (for webstorage path computation).
     pub project_root: Option<&'a Path>,
+    /// The already-resolved webstorage SCOPE root, when the caller has detected
+    /// it (workspace root if any, else the project root). Threading it avoids a
+    /// redundant filesystem walk in `compute_localstorage_path` — material under
+    /// `nub run -r`, where every member would otherwise re-walk (and re-emit the
+    /// dir-creation warning) for the same shared store. `None` lets the path
+    /// computation walk up from `project_root` itself.
+    pub webstorage_scope_root: Option<&'a Path>,
     /// Yarn PnP `.pnp.cjs` path (from `nub_core::pnp::detect`), injected via
     /// `--require` ahead of nub's own preload so PnP's resolver patches install
     /// first. `None` when not in a PnP tree.
@@ -283,22 +290,24 @@ pub fn spawn_node(config: &SpawnConfig<'_>) -> Result<SpawnResult> {
         //     leaves `localStorage` undefined (and throws on access) regardless of
         //     the experimental flag. The path is workspace-keyed so members of one
         //     workspace share a store and unrelated projects stay isolated.
-        // Respect the user: skip the flag if they passed --no-experimental-webstorage
-        // (or set it themselves), and skip the file if they set --localstorage-file.
-        // Below 22.4 both flags are "bad option" — the compat tier runs without them.
-        let user_set_webstorage_flag = config
-            .user_args
-            .iter()
-            .any(|a| a == "--no-experimental-webstorage" || a == "--experimental-webstorage");
-        let user_already_set_localstorage = config
-            .user_args
-            .iter()
-            .any(|a| a.starts_with("--localstorage-file"));
-        if !user_set_webstorage_flag && flags::webstorage_flag_needed(&config.node.version) {
+        // Respect the user: skip BOTH pieces if they already control webstorage —
+        // via argv (--localstorage-file / --experimental-webstorage /
+        // --no-experimental-webstorage) OR their inherited NODE_OPTIONS env (e.g.
+        // an exported `--localstorage-file=…`). The argv form nub injects below
+        // beats a NODE_OPTIONS-set path (last-wins, argv > env), so scanning argv
+        // alone would silently clobber the user's own store — the owner demanded
+        // no clobbering. Below 22.4 both flags are "bad option" — the compat tier
+        // runs without them. (These are argv, not NODE_OPTIONS, so no quoting is
+        // needed: a spawned process arg is passed as one token regardless of spaces.)
+        let user_owns_webstorage =
+            user_controls_webstorage(config.user_args, node_options.as_deref());
+        if !user_owns_webstorage && flags::webstorage_flag_needed(&config.node.version) {
             cmd.arg("--experimental-webstorage");
         }
-        if !user_already_set_localstorage && flags::webstorage_supported(&config.node.version) {
-            if let Some(storage_path) = compute_localstorage_path(config.project_root) {
+        if !user_owns_webstorage && flags::webstorage_supported(&config.node.version) {
+            if let Some(storage_path) =
+                compute_localstorage_path(config.project_root, config.webstorage_scope_root)
+            {
                 cmd.arg(format!("--localstorage-file={}", storage_path.display()));
             }
         }
@@ -407,8 +416,12 @@ pub fn spawn_node(config: &SpawnConfig<'_>) -> Result<SpawnResult> {
         }
         // Yarn PnP token BEFORE nub's preload token, mirroring the argv order
         // above so hardcoded-path `node` invocations inherit PnP-first ordering.
+        // Quoted so a `.pnp.cjs` under a spacey path survives the tokenizer.
         if let Some(pnp) = config.pnp {
-            node_opts_parts.push(format!("--require={}", pnp.display()));
+            node_opts_parts.push(format!(
+                "--require={}",
+                node_options_quote(&pnp.display().to_string())
+            ));
         }
         if let Some(ref inj) = injection {
             node_opts_parts.push(inj.node_options_token());
@@ -433,11 +446,41 @@ pub fn spawn_node(config: &SpawnConfig<'_>) -> Result<SpawnResult> {
         if flags::test_coverage_exclude_supported(&config.node.version) {
             if let Some(ref p) = preload {
                 if let Some(runtime_dir) = Path::new(p).parent() {
+                    // Quote the glob value: the runtime dir can sit under a spacey
+                    // install path (Windows `Program Files`, macOS `Application
+                    // Support`); an unquoted space would split the flag and either
+                    // abort ("not allowed in NODE_OPTIONS" on the fragment) or
+                    // silently drop the exclude.
                     node_opts_parts.push(format!(
-                        "--test-coverage-exclude={}/**",
-                        runtime_dir.display()
+                        "--test-coverage-exclude={}",
+                        node_options_quote(&format!("{}/**", runtime_dir.display()))
                     ));
                 }
+            }
+        }
+        // Webstorage via NODE_OPTIONS too: the argv `--localstorage-file` above only
+        // reaches the DIRECT child. A hardcoded-path `node` grandchild (e.g. a
+        // script's `spawn(process.execPath, …)`) inherits the preload through
+        // NODE_OPTIONS but, without the store here, gets `localStorage` undefined —
+        // and on Node 26 it THROWS on first access. Mirror the argv site exactly:
+        // same version-banded gating, same user-override suppression, plus
+        // NODE_OPTIONS-safe quoting. The direct child sees these in both argv and
+        // NODE_OPTIONS, but the value is identical (nub's computed path), so the
+        // last-wins duplicate is a harmless no-op — same shape as the preload token,
+        // which already rides both surfaces.
+        let user_owns_webstorage_env =
+            user_controls_webstorage(config.user_args, existing_opts.as_deref());
+        if !user_owns_webstorage_env && flags::webstorage_flag_needed(&config.node.version) {
+            node_opts_parts.push("--experimental-webstorage".to_string());
+        }
+        if !user_owns_webstorage_env && flags::webstorage_supported(&config.node.version) {
+            if let Some(storage_path) =
+                compute_localstorage_path(config.project_root, config.webstorage_scope_root)
+            {
+                node_opts_parts.push(format!(
+                    "--localstorage-file={}",
+                    node_options_quote(&storage_path.display().to_string())
+                ));
             }
         }
         if let Some(existing) = existing_opts {
@@ -615,6 +658,7 @@ pub fn compute_augmentation_env(
     node_version: super::version::NodeVersion,
     compat_mode: bool,
     project_root: Option<&Path>,
+    scope_root: Option<&Path>,
     pnp: Option<&Path>,
 ) -> Option<AugmentationEnv> {
     if compat_mode {
@@ -659,24 +703,34 @@ pub fn compute_augmentation_env(
     );
     let mut node_opts_parts: Vec<String> = inject.iter().map(|f| f.to_string()).collect();
     // Yarn PnP `--require <.pnp.cjs>` BEFORE nub's preload token so PnP's
-    // resolver installs first in script-runner child shells too.
+    // resolver installs first in script-runner child shells too. Quoted: a
+    // `.pnp.cjs` under a spacey project path would otherwise fragment.
     if let Some(pnp) = pnp {
-        node_opts_parts.push(format!("--require={}", pnp.display()));
+        node_opts_parts.push(format!(
+            "--require={}",
+            node_options_quote(&pnp.display().to_string())
+        ));
     }
     node_opts_parts.push(injection.node_options_token());
     // Webstorage, default-on with a workspace-keyed localstorage file — matches
     // the whitepaper promise and `spawn_node`. Same two-piece gating: the
     // experimental flag only on 22.4–24.x (native at 25+), the --localstorage-file
-    // on every Node >= 22.4 (it's what actually exposes + persists the global). A
-    // script that wants it off runs `node --no-experimental-webstorage` /
-    // `node --localstorage-file=…`, which overrides NODE_OPTIONS (last-wins). Below
-    // 22.4 both flags are "bad option" and abort the process — so version-gated.
-    if flags::webstorage_flag_needed(&node_version) {
+    // on every Node >= 22.4 (it's what actually exposes + persists the global).
+    // Suppressed entirely when the user already controls webstorage via argv OR
+    // their inherited NODE_OPTIONS (e.g. exported `--localstorage-file=…`) — nub
+    // must not clobber the user's own store. Below 22.4 both flags are "bad
+    // option" and abort the process — so version-gated. The value is quoted so a
+    // spacey cache path survives Node's NODE_OPTIONS tokenizer (finding 1/3).
+    let user_owns_webstorage = user_controls_webstorage(&[], existing_node_options.as_deref());
+    if !user_owns_webstorage && flags::webstorage_flag_needed(&node_version) {
         node_opts_parts.push("--experimental-webstorage".to_string());
     }
-    if flags::webstorage_supported(&node_version) {
-        if let Some(storage_path) = compute_localstorage_path(project_root) {
-            node_opts_parts.push(format!("--localstorage-file={}", storage_path.display()));
+    if !user_owns_webstorage && flags::webstorage_supported(&node_version) {
+        if let Some(storage_path) = compute_localstorage_path(project_root, scope_root) {
+            node_opts_parts.push(format!(
+                "--localstorage-file={}",
+                node_options_quote(&storage_path.display().to_string())
+            ));
         }
     }
     if let Some(existing) = existing_node_options {
@@ -1073,10 +1127,20 @@ fn webstorage_scope_root(start: &Path) -> PathBuf {
 /// not its parent dir, and handing Node a `--localstorage-file` under a
 /// non-creatable dir would abort the run, so on dir-creation failure we emit a
 /// one-line stderr warning and run without webstorage instead.
-fn compute_localstorage_path(project_root: Option<&Path>) -> Option<PathBuf> {
+fn compute_localstorage_path(
+    project_root: Option<&Path>,
+    scope_root: Option<&Path>,
+) -> Option<PathBuf> {
+    // Prefer a scope root the caller already resolved (no re-walk); otherwise walk
+    // up from project_root (or cwd) ourselves.
     let cwd_fallback = env::current_dir().ok();
-    let start = project_root.or(cwd_fallback.as_deref())?;
-    let root = webstorage_scope_root(start);
+    let root = match scope_root {
+        Some(s) => fs::canonicalize(s).unwrap_or_else(|_| s.to_path_buf()),
+        None => {
+            let start = project_root.or(cwd_fallback.as_deref())?;
+            webstorage_scope_root(start)
+        }
+    };
 
     let base = env::var("XDG_CACHE_HOME")
         .ok()
@@ -1089,10 +1153,15 @@ fn compute_localstorage_path(project_root: Option<&Path>) -> Option<PathBuf> {
 
     let storage_dir = base.join("nub").join("webstorage").join(hash);
     if let Err(e) = fs::create_dir_all(&storage_dir) {
-        eprintln!(
-            "nub: webstorage disabled — could not create {}: {e}",
-            storage_dir.display()
-        );
+        // Warn AT MOST ONCE per process: `nub run -r` calls this per package, and a
+        // read-only HOME would otherwise repeat the same line for every member.
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        WARNED.call_once(|| {
+            eprintln!(
+                "nub: webstorage disabled — could not create {}: {e}",
+                storage_dir.display()
+            );
+        });
         return None;
     }
 
@@ -1154,6 +1223,78 @@ pub fn default_compile_cache_dir() -> Option<std::ffi::OsString> {
 mod tests {
     use super::*;
     use crate::node::version::NodeVersion;
+
+    #[test]
+    fn node_options_quote_only_wraps_spacey_values() {
+        // No space → returned bare (tokenizes fine, stays readable / argv-like).
+        assert_eq!(node_options_quote("/tmp/store.sqlite"), "/tmp/store.sqlite");
+        // Space → wrapped in double quotes (single quotes are literal to Node's
+        // tokenizer and would corrupt the path → ERR_INVALID_STATE).
+        assert_eq!(
+            node_options_quote("/tmp/nub cache/store.sqlite"),
+            "\"/tmp/nub cache/store.sqlite\""
+        );
+        // Windows: backslashes inside the quotes are escape chars to Node, so each
+        // must be doubled or `\U`/`\J`/`\.` get eaten. Only quoted when spacey.
+        assert_eq!(
+            node_options_quote(r"C:\Users\John Doe\.cache\store.sqlite"),
+            r#""C:\\Users\\John Doe\\.cache\\store.sqlite""#
+        );
+        // A backslash path WITHOUT a space stays bare — Node only treats `\` as an
+        // escape INSIDE a quoted string, so an unquoted backslash is literal.
+        assert_eq!(
+            node_options_quote(r"C:\Users\John\.cache\store.sqlite"),
+            r"C:\Users\John\.cache\store.sqlite"
+        );
+        // An embedded double-quote in a spacey value is backslash-escaped.
+        assert_eq!(node_options_quote(r#"/tmp/a "b" c"#), r#""/tmp/a \"b\" c""#);
+    }
+
+    #[test]
+    fn user_controls_webstorage_detects_argv_and_node_options() {
+        // Baseline: nothing set → nub owns webstorage.
+        assert!(!user_controls_webstorage(&[], None));
+        assert!(!user_controls_webstorage(
+            &["script.js".into()],
+            Some("--enable-source-maps")
+        ));
+
+        // (a) argv --localstorage-file, both = and two-token spellings. The `=`
+        // form is detected by the `starts_with` prefix; the bare flag also matches
+        // (the value would be the following argv token, which nub never injects).
+        assert!(user_controls_webstorage(
+            &["--localstorage-file=/my/store.sqlite".into()],
+            None
+        ));
+        assert!(user_controls_webstorage(
+            &["--localstorage-file".into(), "/my/store.sqlite".into()],
+            None
+        ));
+
+        // (b) NODE_OPTIONS env carrying --localstorage-file → nub must suppress so
+        // it doesn't clobber the user's store (argv-injected path would win).
+        assert!(user_controls_webstorage(
+            &[],
+            Some("--enable-source-maps --localstorage-file=/my/store.sqlite")
+        ));
+
+        // (c) explicit opt-out via --no-experimental-webstorage (argv or env).
+        assert!(user_controls_webstorage(
+            &["--no-experimental-webstorage".into()],
+            None
+        ));
+        assert!(user_controls_webstorage(
+            &[],
+            Some("--no-experimental-webstorage")
+        ));
+
+        // The user setting --experimental-webstorage themselves also yields control
+        // (nub then injects neither the flag nor its own file).
+        assert!(user_controls_webstorage(
+            &["--experimental-webstorage".into()],
+            None
+        ));
+    }
 
     // `ctrl_c::CURRENT_CHILD` is a process-global AtomicU32. The two tests that
     // exercise it (`ctrl_c_forwards_*` and `diagnostic_signal_*`) therefore race
@@ -1436,9 +1577,9 @@ mod tests {
         let proj2 = TempDir::new("p2");
         fs::write(proj2.path().join("package.json"), r#"{"name":"p2"}"#).unwrap();
 
-        let a1 = compute_localstorage_path(Some(proj1.path())).unwrap();
-        let a2 = compute_localstorage_path(Some(proj1.path())).unwrap();
-        let b = compute_localstorage_path(Some(proj2.path())).unwrap();
+        let a1 = compute_localstorage_path(Some(proj1.path()), None).unwrap();
+        let a2 = compute_localstorage_path(Some(proj1.path()), None).unwrap();
+        let b = compute_localstorage_path(Some(proj2.path()), None).unwrap();
         // Clean up the hash dirs we just created under the real cache root.
         let _ = fs::remove_dir_all(a1.parent().unwrap());
         let _ = fs::remove_dir_all(b.parent().unwrap());
