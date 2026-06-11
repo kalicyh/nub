@@ -44,7 +44,7 @@ export default async function BlogPost(props: {
         <InlineTOC items={page.data.toc} className="mt-8" />
       ) : null}
 
-      <article className="prose mt-10">
+      <article className="prose blog-prose mt-10">
         <MDXContent components={getMDXComponents()} />
       </article>
     </div>

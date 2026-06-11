@@ -92,6 +92,30 @@ export async function Source({
   return <Window className={className}>{rendered}</Window>;
 }
 
+/* A self-contained benchmark panel for MDX content (blog posts): the homepage's
+   dark card + label, wrapping BenchBars. `not-prose` keeps article typography
+   from restyling the chart. */
+export function Bench({
+  label,
+  rows,
+  max,
+  accent = 'ember',
+}: {
+  label: string;
+  rows: { cmd: string; ms: number; ratio?: number | null; us?: boolean }[];
+  max: number;
+  accent?: 'ember' | 'acid' | 'sky';
+}) {
+  return (
+    <div className="not-prose my-6 rounded-xl border border-fd-border bg-[#0b0a08] p-6">
+      <p className="mb-5 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-fd-muted-foreground">
+        {label}
+      </p>
+      <BenchBars accent={accent} max={max} rows={rows} />
+    </div>
+  );
+}
+
 /* Horizontal benchmark bars. The fastest row is tinted with `accent`. */
 export function BenchBars({
   rows,

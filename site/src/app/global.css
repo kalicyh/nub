@@ -81,6 +81,50 @@ h1, h2, h3, h4, .font-display {
   letter-spacing: -0.015em;
 }
 
+/* Blog articles: fumadocs' prose scale is tuned for docs density; on the
+   editorial blog column its headings read barely larger than the body serif
+   (h2 24px / h3 20px / h4 16px against 16px body). Size the hierarchy up.
+   Fumadocs styles headings via :where(), so these plain selectors win. */
+.blog-prose h2 {
+  font-size: 2rem;
+  line-height: 1.15;
+  font-weight: 500;
+  margin-top: 3.5rem;
+}
+.blog-prose h3 {
+  font-size: 1.4rem;
+  line-height: 1.25;
+  font-weight: 500;
+  margin-top: 2.75rem;
+}
+.blog-prose h4 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-top: 2.25rem;
+}
+
+/* Blockquotes as editorial asides — a hairline ember rule on a faint card,
+   roman (not italic), no inserted quotation marks. The default prose
+   blockquote reads as an unstyled gray slab against this page. */
+.blog-prose blockquote {
+  border-left: 2px solid color-mix(in srgb, var(--color-ember) 55%, transparent);
+  background: var(--color-fd-card);
+  border-radius: 0 0.5rem 0.5rem 0;
+  padding: 0.875rem 1.25rem;
+  margin-block: 1.75rem;
+  font-style: normal;
+  font-size: 0.9375rem;
+  color: var(--color-fd-muted-foreground);
+  quotes: none;
+}
+.blog-prose blockquote p {
+  margin: 0;
+}
+.blog-prose blockquote p:first-of-type::before,
+.blog-prose blockquote p:last-of-type::after {
+  content: none;
+}
+
 /* Small UI labels / eyebrows: mono, tracked, uppercase. */
 .eyebrow {
   font-family: var(--font-mono);
