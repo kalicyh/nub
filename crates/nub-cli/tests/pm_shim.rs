@@ -700,3 +700,141 @@ fn name_only_pin_prefers_the_system_pm_over_per_run_resolution() {
         "the refusal names the pinned PM:\n{stderr}"
     );
 }
+
+/// Spawn a PM by its BARE name (`pnpm`, not an absolute link path) so the OS
+/// PATH-resolves it. With the shim dir first on PATH, `command -v pnpm` lands
+/// on the shim, exactly as it does in a real shell after `nub pm shim` — the
+/// one mechanism the direct-link tests above cannot exercise, because they
+/// hand `run` an absolute path and never go through PATH lookup at all.
+fn run_bare(
+    name: &str,
+    args: &[&str],
+    cwd: &Path,
+    shim_dir: &Path,
+    rest_of_path: &[&Path],
+    home: &Path,
+) -> (String, String, i32) {
+    let mut entries = vec![shim_dir.to_path_buf()];
+    entries.extend(rest_of_path.iter().map(|p| p.to_path_buf()));
+    let path = std::env::join_paths(entries).unwrap();
+    let mut cmd = Command::new(name); // bare name → PATH lookup
+    cmd.args(args).current_dir(cwd);
+    cmd.env_clear();
+    cmd.env("PATH", &path);
+    cmd.env("HOME", home);
+    let out = cmd.output().expect("PATH-resolved spawn failed");
+    (
+        String::from_utf8_lossy(&out.stdout).to_string(),
+        String::from_utf8_lossy(&out.stderr).to_string(),
+        out.status.code().unwrap_or(-1),
+    )
+}
+
+/// The end-to-end PATH chain a real shell takes after `nub pm shim`, and the
+/// single highest-blast-radius shim surface: install the shim dir, prepend it
+/// to PATH, then run a *bare* PM name. The OS — not the test — resolves the
+/// name to nub via PATH order, nub dispatches by argv0, and decides. Both the
+/// refuse arm (mismatched PM in a pinned project) and the fall-through arm
+/// (matching PM, no pin) must leave the project with NO competing lockfile —
+/// the whole point of the shim is that a foreign PM never silently mints
+/// `package-lock.json` / a second lockfile beside the pinned one.
+///
+/// The direct-link tests above call `run(&link, …)` with an absolute path, so
+/// they prove nub's *decision* but never the install→PATH-order→argv0 chain a
+/// user actually hits. This is the live-probe path made permanent.
+#[test]
+fn installed_shims_intercept_a_bare_pm_via_path_and_never_mint_a_competing_lockfile() {
+    let home = tmp("bare-path");
+    // Real install: produces ~/.nub/shims with the 7 hardlinks + a PATH block.
+    let (_, stderr, code) = run(
+        &nub_binary(),
+        &["pm", "shim"],
+        &home,
+        &[("HOME", home.to_str().unwrap()), ("SHELL", "/bin/sh")],
+    );
+    assert_eq!(code, 0, "nub pm shim must succeed; stderr:\n{stderr}");
+    let shims = home.join(".nub/shims");
+    assert!(
+        shims.join("pnpm").is_file() && shims.join("npm").is_file(),
+        "the shim dir must carry the PM hardlinks"
+    );
+
+    // A real system pnpm/npm sits LATER on PATH; the shims must win the lookup.
+    let sys = home.join("sys");
+    std::fs::create_dir_all(&sys).unwrap();
+    let sys_pnpm = fake_pm(&sys, "pnpm");
+    fake_pm(&sys, "npm");
+
+    // (A) Refuse arm: a pnpm-pinned project, invoked as bare `npm`. PATH-
+    // resolves to the shim, which refuses BEFORE the system npm and writes
+    // no lockfile.
+    let pinned = home.join("pinned");
+    std::fs::create_dir_all(&pinned).unwrap();
+    std::fs::write(
+        pinned.join("package.json"),
+        r#"{"packageManager":"pnpm@9.0.0"}"#,
+    )
+    .unwrap();
+    let (stdout, stderr, code) = run_bare(
+        "npm",
+        &["install", "react"],
+        &pinned,
+        &shims,
+        &[&sys],
+        &home,
+    );
+    assert_eq!(
+        code, 1,
+        "the bare-name mismatch must refuse; stderr:\n{stderr}"
+    );
+    assert!(
+        !stdout.contains("SYSPNPM") && !stdout.contains("FAKE"),
+        "the system npm must never run on a refusal; stdout:\n{stdout}"
+    );
+    assert!(
+        stderr.contains("shims on your PATH") && stderr.contains("pnpm"),
+        "the refusal must name the shim interception + the pinned PM; stderr:\n{stderr}"
+    );
+    let after_refuse: Vec<String> = std::fs::read_dir(&pinned)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        after_refuse,
+        vec!["package.json".to_string()],
+        "a refused foreign PM must mint NO competing lockfile; project held: {after_refuse:?}"
+    );
+
+    // (B) Fall-through arm: an UNPINNED project, invoked as bare `pnpm`. PATH-
+    // resolves to the shim, which (no pin, matching family) falls through to
+    // the system pnpm — and still mints no lockfile of its own.
+    let unpinned = home.join("unpinned");
+    std::fs::create_dir_all(&unpinned).unwrap();
+    std::fs::write(unpinned.join("package.json"), r#"{"name":"app"}"#).unwrap();
+    let (stdout, stderr, code) = run_bare(
+        "pnpm",
+        &["install", "--frozen-lockfile"],
+        &unpinned,
+        &shims,
+        &[&sys],
+        &home,
+    );
+    assert_eq!(
+        code, 0,
+        "an unpinned fall-through exits with the system PM's code; stderr:\n{stderr}"
+    );
+    assert_eq!(
+        stdout,
+        format!("FAKE:{}:install --frozen-lockfile\n", sys_pnpm.display()),
+        "the bare pnpm must PATH-route through the shim to the SYSTEM pnpm verbatim"
+    );
+    let after_fallthrough: Vec<String> = std::fs::read_dir(&unpinned)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        after_fallthrough,
+        vec!["package.json".to_string()],
+        "fall-through must not let the shim itself mint a lockfile; project held: {after_fallthrough:?}"
+    );
+}
