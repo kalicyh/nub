@@ -185,7 +185,9 @@ nub node uninstall 22   # remove a version
 
 These work on every Node version Nub supports — polyfilled where Node hasn't shipped them, unflagged where Node gates them. Credit where it's due: Node has been closing this gap itself (`WebSocket` in 22.5, `node:sqlite` in 22.13, `URLPattern` in 24, `localStorage` in 25, `Temporal` in 26). The list below is a moving target by design — each item bridges the LTS you're on today to the LTS you'll be on tomorrow, and as your Node floor rises the polyfills feature-detect, defer, and disappear. Same code, no migration.
 
-**`Worker`** — browser-shape worker constructor over `node:worker_threads`. Node has no native plan ([nodejs/node#43583](https://github.com/nodejs/node/issues/43583), open since 2022); Nub bridges `EventTarget`, `MessageEvent`, and `ErrorEvent` semantics in ~150 lines. The same `Worker` you'd use in a browser, in Bun, or in Deno.
+### `Worker`
+
+Browser-shape worker constructor over `node:worker_threads`. Node has no native plan ([nodejs/node#43583](https://github.com/nodejs/node/issues/43583), open since 2022); Nub bridges `EventTarget`, `MessageEvent`, and `ErrorEvent` semantics in ~150 lines. The same `Worker` you'd use in a browser, in Bun, or in Deno.
 
 ```ts
 const worker = new Worker(
@@ -196,7 +198,9 @@ worker.addEventListener("message", (e) => console.log(e.data));
 worker.postMessage({ task: "compute" });
 ```
 
-**`Temporal`** — the TC39 date/time API. Native in Node 26+; older Nodes get the reference [`@js-temporal/polyfill`](https://github.com/js-temporal/temporal-polyfill) by the proposal authors.
+### `Temporal`
+
+The TC39 date/time API. Native in Node 26+; older Nodes get the reference [`@js-temporal/polyfill`](https://github.com/js-temporal/temporal-polyfill) by the proposal authors.
 
 ```ts
 const now = Temporal.Now.plainDateTimeISO();
@@ -204,7 +208,9 @@ const tomorrow = now.add({ days: 1 });
 const meeting = Temporal.ZonedDateTime.from("2026-06-01T09:00[America/New_York]");
 ```
 
-**`URLPattern`** — WHATWG URL pattern matching. Native in Node 24+; polyfilled on older lines.
+### `URLPattern`
+
+WHATWG URL pattern matching. Native in Node 24+; polyfilled on older lines.
 
 ```ts
 const route = new URLPattern({ pathname: "/users/:id" });
@@ -212,7 +218,9 @@ const match = route.exec("https://example.com/users/42");
 match?.pathname.groups.id; // "42"
 ```
 
-**`WebSocket`** — browser-standard WebSocket client. Native in Node 22.5+; flag-injected on 22.0–22.4; polyfilled via the already-bundled `node:undici` on Node 20 (zero new deps).
+### `WebSocket`
+
+Browser-standard WebSocket client. Native in Node 22.5+; flag-injected on 22.0–22.4; polyfilled via the already-bundled `node:undici` on Node 20 (zero new deps).
 
 ```ts
 const ws = new WebSocket("wss://api.example.com/stream");
@@ -221,21 +229,27 @@ ws.addEventListener("message", (e) => console.log(e.data));
 ws.addEventListener("open", () => ws.send("hello"));
 ```
 
-**`EventSource`** — SSE client, handy for LLM streaming. Behind `--experimental-eventsource` on current Node; Nub auto-injects.
+### `EventSource`
+
+SSE client — handy for LLM streaming. Behind `--experimental-eventsource` on current Node; Nub auto-injects.
 
 ```ts
 const stream = new EventSource("https://api.example.com/llm/stream");
 stream.addEventListener("message", (e) => process.stdout.write(e.data));
 ```
 
-**`localStorage` / `sessionStorage`** — native in Node 25+, flag-gated on 22 / 24 — and on every version, persistence silently fails unless you set `--localstorage-file` yourself. Nub injects the flag and defaults the storage file to `~/.cache/nub/<project-hash>/localstorage`, so `localStorage.setItem` just works.
+### `localStorage` / `sessionStorage`
+
+Native in Node 25+, flag-gated on 22 / 24 — and on every version, persistence silently fails unless you set `--localstorage-file` yourself. Nub injects the flag and defaults the storage file to `~/.cache/nub/<project-hash>/localstorage`, so `localStorage.setItem` just works.
 
 ```ts
 localStorage.setItem("auth.token", "abc123");
 const token = localStorage.getItem("auth.token");
 ```
 
-**`vm.Module`** — evaluate ESM with a custom resolver. Behind `--experimental-vm-modules` since 2017 and still flagged; Jest and Vitest depend on it. Nub auto-injects.
+### `vm.Module`
+
+Evaluate ESM with a custom resolver. Behind `--experimental-vm-modules` since 2017 and still flagged; Jest and Vitest depend on it. Nub auto-injects.
 
 ```ts
 import { SourceTextModule } from "node:vm";
@@ -246,7 +260,9 @@ await mod.evaluate();
 mod.namespace.answer; // 42
 ```
 
-**`node:sqlite`** — embedded SQLite. Unflagged in Node 22.13 / 23.4+; Nub injects `--experimental-sqlite` on older.
+### `node:sqlite`
+
+Embedded SQLite. Unflagged in Node 22.13 / 23.4+; Nub injects `--experimental-sqlite` on older.
 
 ```ts
 import { DatabaseSync } from "node:sqlite";
@@ -256,7 +272,9 @@ db.exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT)");
 db.prepare("INSERT INTO users (name) VALUES (?)").run("Ada");
 ```
 
-**Stage 4 standard-library bridges** — finished TC39 methods, native on Node 24+ and polyfilled on older lines, each one feature-detected and deferred the moment your floor rises:
+### Stage 4 standard-library bridges
+
+Finished TC39 methods — native on Node 24+, polyfilled on older lines, each one feature-detected and deferred the moment your floor rises:
 
 - [`RegExp.escape`](https://github.com/tc39/proposal-regex-escaping) — escape text for literal use in a `RegExp`.
 - [`Error.isError`](https://github.com/tc39/proposal-is-error) — cross-realm `Error` detection, where `instanceof` lies.
@@ -376,7 +394,7 @@ The `.bin` walk-up happens in Rust and the binary is exec'd directly — no Node
 
 ## `nub install` — a built-in package manager
 
-Nub ships a full package manager, powered by the embedded [aube](https://github.com/jdx/aube) engine — built in partnership with [jdx](https://github.com/jdx). The CLI surface is pnpm's; the lockfile is whatever your project already uses:
+Nub ships a full package manager, powered by the embedded [aube](https://aube.jdx.dev) engine — built by [jdx](https://github.com/jdx), the creator of mise. The CLI surface is pnpm's; the lockfile is whatever your project already uses:
 
 ```sh
 $ nub install   # pnpm-lock.yaml → read, written back
@@ -386,6 +404,12 @@ $ nub install   # yarn.lock → honored read-only
 ```
 
 There's no migration. `nub install` detects the lockfile your project already has — npm, pnpm, or bun — and writes the same format back, never a foreign file (`yarn.lock` is read-only: an install that would rewrite it is refused, with the exact yarn command to run instead). Fresh projects get a standard `pnpm-lock.yaml`. And your package manager keeps working, side by side: run either tool, commit the same file, switch back any time.
+
+If you haven't heard of aube, what it brings:
+
+- **Speed** — warm installs run ~6× faster than pnpm and ~7× faster than Bun on [aube's benchmarks](https://aube.jdx.dev/benchmarks).
+- **The tightest security defaults of any Node package manager** — lifecycle scripts wait for approval (with an opt-in build jail — the only one in the ecosystem), exotic transitive deps are blocked, and brand-new releases sit in a [24-hour cooling window](https://aube.jdx.dev/security).
+- **Less disk** — a global content-addressable store shares package files across projects instead of duplicating them per checkout.
 
 The install layout follows the lockfile too. pnpm projects and fresh ones get strict, symlinked, pnpm-style installs, with the virtual store tucked under `node_modules/.nub`; projects with an npm, yarn, or bun lockfile default to the flat hoisted layout those tools produce — nothing about your tree surprises the code that walks it. One `.npmrc` line (`node-linker`) overrides either default.
 
