@@ -12,12 +12,31 @@
 use super::feature_matrix::{self, Mitigation};
 use super::version::NodeVersion;
 
-/// Flags Nub injects on EVERY supported Node version. `--enable-source-maps` has
-/// existed since Node 12.12, so it is safe across the whole 18.19+ range.
+/// Flags Nub injects on EVERY supported Node version where they are safe.
+/// `--enable-source-maps` has existed since Node 12.12, so it is structurally
+/// available across the whole 18.19+ range — BUT it is gated out of the
+/// `source_maps_safe`-false band (Node 26.2.x; see that predicate).
 /// (`--disable-warning` is NOT here — it doesn't exist on Node 18.x / 20.0–20.10
 /// and is gated below; injecting it there is a hard "bad option" / "not allowed
 /// in NODE_OPTIONS" error, which broke the compat tier on those versions.)
 const ALWAYS_INJECT: &[&str] = &["--enable-source-maps"];
+
+/// Whether nub may inject `--enable-source-maps` on this Node version.
+///
+/// Node **26.2.x specifically** has a regression where, with source maps enabled,
+/// a no-message `assert.ok(false)` / `assert(false)` rethrows as a `TypeError`
+/// instead of the expected `AssertionError` (the source-map remapping path
+/// mis-constructs the error for the no-message form). Empirically isolated to the
+/// 26.2 patch band: Node 18.19 / 20 / 22 / 24 / 25 and 26.1 are all clean, and a
+/// future 26.3 is expected clean too. So nub withholds the injection ONLY on
+/// 26.2.x — source maps are unavailable there (a cosmetic loss: stack traces are
+/// not remapped), which is far better than corrupting the type of a thrown
+/// AssertionError. Verified on real Node 26.2.0:
+/// `node --enable-source-maps -e 'try{require("assert").ok(false)}catch(e){console.log(e.constructor.name)}'`
+/// prints `TypeError`; without the flag it prints `AssertionError`.
+pub fn source_maps_safe(node_version: &NodeVersion) -> bool {
+    !(node_version.major() == 26 && node_version.minor() == 2)
+}
 
 /// `--disable-warning=ExperimentalWarning` (suppresses Node's experimental-feature
 /// warning) was added in Node 21.3.0 and backported to 20.11.0. It does NOT exist
@@ -116,6 +135,11 @@ pub fn compute_inject_flags(
     let mut flags: Vec<&str> = Vec::new();
 
     for &flag in ALWAYS_INJECT {
+        // --enable-source-maps is withheld on Node 26.2.x (see `source_maps_safe`):
+        // there it turns a no-message AssertionError into a TypeError.
+        if flag == "--enable-source-maps" && !source_maps_safe(&node_version) {
+            continue;
+        }
         flags.push(flag);
     }
 
@@ -426,5 +450,36 @@ mod tests {
         assert!(test_coverage_exclude_supported(&v(22, 5, 0)));
         assert!(test_coverage_exclude_supported(&v(22, 15, 0)));
         assert!(test_coverage_exclude_supported(&v(24, 0, 0)));
+    }
+
+    #[test]
+    fn source_maps_withheld_only_on_26_2_band() {
+        // Node 26.2.x regresses: with --enable-source-maps, a no-message
+        // assert.ok(false) rethrows as TypeError instead of AssertionError. nub
+        // withholds the injection there and ONLY there — 24 / 25 / 26.1 and a
+        // future 26.3 are clean. (Verified empirically on real Node 26.2.0.)
+        for ver in [v(24, 0, 0), v(25, 8, 0), v(26, 1, 0), v(26, 3, 0)] {
+            assert!(
+                source_maps_safe(&ver),
+                "source maps must be safe to inject on {ver:?}"
+            );
+            assert!(
+                compute_inject_flags(ver.clone(), &[], None, false)
+                    .contains(&"--enable-source-maps"),
+                "--enable-source-maps must inject on {ver:?}"
+            );
+        }
+        // The affected band: every 26.2.x patch is gated out.
+        for ver in [v(26, 2, 0), v(26, 2, 5)] {
+            assert!(
+                !source_maps_safe(&ver),
+                "source maps must be withheld on {ver:?}"
+            );
+            assert!(
+                !compute_inject_flags(ver.clone(), &[], None, false)
+                    .contains(&"--enable-source-maps"),
+                "--enable-source-maps must NOT inject on {ver:?} (assert→TypeError regression)"
+            );
+        }
     }
 }
