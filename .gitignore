@@ -52,3 +52,6 @@ npm/nub-*/*.tgz
 wiki/
 epics/
 .vercel
+
+# isolated build/test worktrees (scripts/worktree.sh)
+/.worktrees/
