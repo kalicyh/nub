@@ -17,6 +17,13 @@
 // worker injects no watch hooks (watch IPC is main-thread only), so the core's
 // dependency reporters stay no-ops here, exactly as before the extraction.
 
+// Floor bootstrap (Node < 22.3/20.16/18.20.4): stashes createRequire on a
+// module-scoped global for transform-core, which has no process.getBuiltinModule
+// on the floor. MUST precede the transform-core import so the global is set before
+// transform-core's body evaluates. No-op where getBuiltinModule exists. This worker
+// runs OFF any user loader chain, so its static node:module imports never leak —
+// see floor-builtin.mjs.
+import "./floor-builtin.mjs";
 import {
   TRANSPILE_EXTS, DATA_EXTS,
   extname, resolveSpec, loadTranspile, loadData,

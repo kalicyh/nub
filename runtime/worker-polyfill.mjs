@@ -3,29 +3,33 @@
 // real MessageEvent/ErrorEvent, and URL-only constructor (Deno shape).
 
 // node: builtins are fetched via `process.getBuiltinModule` rather than static
-// `import`. This file is loaded via `require(esm)` from the preload, and Node's
-// `require(esm)` instantiates an ES module by walking its STATIC IMPORT graph
-// through whatever ESM loader chain is registered — including the USER's
+// `import`. This file is loaded via `require(esm)` from the preload (polyfills.cjs),
+// and Node's `require(esm)` instantiates an ES module by walking its STATIC IMPORT
+// graph through whatever ESM loader chain is registered — including the USER's
 // `--loader`/`register()` hooks. A static `import { Worker } from
 // "node:worker_threads"` therefore routes the builtin through the user chain; a
 // user load hook that returns SOURCE for node:worker_threads makes V8 see no
 // `Worker` export, so `new NodeWorker(...)` references an undefined binding and
 // the child crashes (observed against test-esm-loader-chaining). `process
-// .getBuiltinModule` fetches the real builtin synchronously off the loader
-// graph, bypassing the user chain entirely — same fix transform-core.mjs uses.
-// `process.getBuiltinModule` doesn't exist below Node 22.3 / 20.16 / 18.20.4 (it
-// threw `TypeError: ... is not a function` there). Fall back to a createRequire
-// bootstrapped from a single static `node:module` import. The actual builtins below
-// are still fetched through `__getBuiltin` — getBuiltinModule on new Node, CJS
-// `__require` on old — and BOTH bypass the user ESM loader chain (the whole reason
-// this file avoids a static `import` of node:worker_threads). Only the bootstrap
-// touches node:module, which user loader hooks don't intercept (unlike the mockable
-// node:worker_threads the chaining test targets), so the bypass guarantee holds.
-import { createRequire as __bootstrapCreateRequire } from "node:module";
+// .getBuiltinModule` fetches the real builtin synchronously off the loader graph,
+// bypassing the user chain entirely — same fix transform-core.mjs uses.
+//
+// The bootstrap MUST avoid a static `node:module` import too: it has the IDENTICAL
+// leak. The chaining corpus registers a user load hook (loader-load-foo-or-42.mjs)
+// that rewrites the SOURCE of `node:module` so its compiled namespace no longer
+// exports `createRequire` — so a static `import { createRequire } from "node:module"`
+// here threw `does not provide an export named 'createRequire'` and crashed every
+// run with that loader (the earlier comment claimed user hooks "don't intercept
+// node:module" — FALSE; this is the bug). So we use `process.getBuiltinModule` when
+// present (fast tier + modern compat: no static import, nothing for the user chain
+// to observe), and on the narrow FLOOR where it's absent (Node < 22.3/20.16/18.20.4,
+// loaded only via the compat-tier entries OFF any user chain) the createRequire
+// stashed by runtime/floor-builtin.mjs — the single static `node:module` import lives
+// there, in a module the fast tier never loads. See floor-builtin.mjs.
 const __getBuiltin =
   typeof process.getBuiltinModule === "function"
     ? (id) => process.getBuiltinModule(id)
-    : ((__r) => (id) => __r(id))(__bootstrapCreateRequire(import.meta.url));
+    : ((__r) => (id) => __r(id))(globalThis.__nubFloorCreateRequire(import.meta.url));
 const { Worker: NodeWorker, parentPort, isMainThread } = __getBuiltin("node:worker_threads");
 const { fileURLToPath } = __getBuiltin("node:url");
 

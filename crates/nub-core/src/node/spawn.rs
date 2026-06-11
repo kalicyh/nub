@@ -374,7 +374,31 @@ pub fn spawn_node(config: &SpawnConfig<'_>) -> Result<SpawnResult> {
         // only the preload chain is excluded. The sentinel path is keyed on nub's
         // PID; the child reads it from `process.ppid` (nub is its direct parent),
         // the same PID-keyed temp pattern as the PATH shim.
-        if let Some(dir) = env::var("NODE_COMPILE_CACHE")
+        //
+        // COVERAGE GATE (compile-cache vs V8 coverage). A WARM compile cache makes
+        // V8's coverage imprecise: cached bytecode collapses/omits per-branch ranges,
+        // so under `--experimental-test-coverage` / NODE_V8_COVERAGE the line/branch
+        // percentages inflate and ranges collapse vs plain node — silently. So when
+        // THIS nub invocation is itself collecting coverage (flag in argv/NODE_OPTIONS,
+        // or NODE_V8_COVERAGE in env — same signal coverage_exclude_glob keys on, plus
+        // the env var), set up NO compile cache at all: no default dir, and don't honor
+        // a user-set one for this run either (coverage precision wins over their cache;
+        // it's a single coverage run). The complementary case — a coverage child that
+        // nub's OWN spawn path never sees because the user's test code spawns it
+        // directly — is handled in the preload (reenableUserCompileCache sets
+        // NODE_DISABLE_COMPILE_CACHE=1 so descendants boot cache-off).
+        let node_v8_coverage = env::var("NODE_V8_COVERAGE").ok();
+        let coverage = coverage_active_for_cache(
+            config.user_args,
+            node_options.as_deref(),
+            node_v8_coverage.as_deref(),
+        );
+        if coverage {
+            // Make sure nothing turns the cache back on for this run: drop any
+            // inherited NODE_COMPILE_CACHE from the child env and write no sentinel,
+            // so the preload's restore finds nothing and never re-enables.
+            cmd.env_remove("NODE_COMPILE_CACHE");
+        } else if let Some(dir) = env::var("NODE_COMPILE_CACHE")
             .ok()
             .filter(|s| !s.is_empty())
         {
@@ -382,7 +406,7 @@ pub fn spawn_node(config: &SpawnConfig<'_>) -> Result<SpawnResult> {
             if write_compile_cache_sentinel(&dir).is_ok() {
                 _ccache_guard = Some(CompileCacheSentinelGuard);
             }
-        } else {
+        } else if let Some(dir) = default_compile_cache_dir() {
             // Default-on compile cache (decided 2026-06-10, measured): when the
             // user hasn't set NODE_COMPILE_CACHE, point it at a nub-owned dir.
             // Big single-file bundles gain tens of ms per invocation (pnpm −70ms,
@@ -390,14 +414,29 @@ pub fn spawn_node(config: &SpawnConfig<'_>) -> Result<SpawnResult> {
             // via NODE_DEBUG_NATIVE=COMPILE_CACHE: blobs accepted on read, persist
             // skipped when unchanged); small graphs measure at noise, and a stale/
             // incompatible blob is validated-and-rejected by V8, never trusted.
-            // The dir is nub-owned, so unlike the user-set branch above there is
-            // no pollution concern and NO strip/sentinel dance — the preload chain
-            // caches too. Escape hatches: set NODE_COMPILE_CACHE yourself (takes
-            // the R8 branch), or NODE_DISABLE_COMPILE_CACHE=1 (honored by Node).
-            // Coverage caveat (Node docs: cached code can make coverage less
-            // precise) is documented; the disable var is the answer there.
-            if let Some(dir) = default_compile_cache_dir() {
-                cmd.env("NODE_COMPILE_CACHE", &dir);
+            //
+            // Route it through the SAME strip+sentinel dance as the user-set branch
+            // (not a bare `cmd.env(NODE_COMPILE_CACHE, dir)`). Leaving the dir in the
+            // child env meant EVERY descendant — including a coverage child the user's
+            // test code spawns directly (`spawnSync(execPath, [fixtureWithCoverage])`),
+            // which nub's own spawn path never sees — inherited it and enabled the
+            // cache AT BOOTSTRAP, before any preload could gate it, collapsing that
+            // child's V8 coverage ranges (the test-runner coverage-width snapshot
+            // tests). With the sentinel, NODE_COMPILE_CACHE is absent from the child
+            // env, so nothing boots cache-warm; each nub-preloaded process re-enables
+            // the cache post-bootstrap via reenableUserCompileCache, which SKIPS the
+            // re-enable (and sets NODE_DISABLE_COMPILE_CACHE=1 for its own descendants)
+            // when that process is collecting coverage. Cost: the preload chain itself
+            // is no longer bootstrap-cached on the default path — but that chain was
+            // never the perf target (big user bundles are), and not caching nub's own
+            // modules is strictly better for the R8 pollution invariant too.
+            // Escape hatches unchanged: NODE_COMPILE_CACHE yourself, or
+            // NODE_DISABLE_COMPILE_CACHE=1 (honored by Node).
+            cmd.env_remove("NODE_COMPILE_CACHE");
+            if let Some(dir) = dir.to_str() {
+                if write_compile_cache_sentinel(dir).is_ok() {
+                    _ccache_guard = Some(CompileCacheSentinelGuard);
+                }
             }
         }
 
@@ -549,7 +588,48 @@ impl Drop for ShimGuard {
 /// is the child's direct parent). Same `<tmpdir>/nub-…-<pid>` shape as the PATH
 /// shim, so cleanup is symmetric and a recycled PID can't collide across runs.
 fn compile_cache_sentinel_path(nub_pid: u32) -> PathBuf {
-    env::temp_dir().join(format!("nub-ccache-{nub_pid}"))
+    compile_cache_tmpdir().join(format!("nub-ccache-{nub_pid}"))
+}
+
+/// The temp dir for the compile-cache sentinel, resolved to MATCH the JS side's
+/// `tmpdirNoOs()` (preload-common.cjs) so both ends agree on the path. Both must
+/// resolve identically or the child can't find the sentinel nub wrote — which
+/// silently disables the compile cache (the symptom: the default cache never
+/// populates when TMPDIR is unset). We deliberately do NOT use `env::temp_dir()`:
+/// on macOS it returns the per-user Darwin confstr dir (`/var/folders/.../T`) even
+/// when TMPDIR is unset, whereas Node's `os.tmpdir()` falls back to `/tmp` — so the
+/// two disagree in a clean (`env -i`) environment, exactly the case the corpus
+/// harness spawns under (it forwards only PATH + HOME, not TMPDIR). Mirror Node's
+/// libuv resolution: POSIX TMPDIR→TMP→TEMP→/tmp, Win32 TEMP→TMP→SystemRoot\temp,
+/// trailing-separator-stripped — identical to tmpdirNoOs(). nub forwards its own
+/// env to the child, so resolving from nub's env vars yields the child's view.
+fn compile_cache_tmpdir() -> PathBuf {
+    let strip_trailing = |mut s: String, sep: char| -> String {
+        if s.len() > 1 && s.ends_with(sep) && !s.ends_with(&format!(":{sep}")) {
+            s.pop();
+        }
+        s
+    };
+    if cfg!(windows) {
+        let dir = env::var("TEMP")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .or_else(|| env::var("TMP").ok().filter(|s| !s.is_empty()))
+            .unwrap_or_else(|| {
+                let root = env::var("SystemRoot")
+                    .or_else(|_| env::var("windir"))
+                    .unwrap_or_default();
+                format!("{root}\\temp")
+            });
+        return PathBuf::from(strip_trailing(dir, '\\'));
+    }
+    let dir = env::var("TMPDIR")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| env::var("TMP").ok().filter(|s| !s.is_empty()))
+        .or_else(|| env::var("TEMP").ok().filter(|s| !s.is_empty()))
+        .unwrap_or_else(|| "/tmp".to_string());
+    PathBuf::from(strip_trailing(dir, '/'))
 }
 
 /// Write the user's original compile-cache dir to this nub process's sentinel
@@ -835,6 +915,24 @@ fn coverage_active(user_args: &[String], node_options: Option<&str>) -> bool {
         })
         .unwrap_or(false);
     in_argv || in_opts
+}
+
+/// Whether V8 coverage is active for the compile-cache gate — the same
+/// `--experimental-test-coverage` signal `coverage_active` keys on (argv +
+/// NODE_OPTIONS), PLUS a non-empty `NODE_V8_COVERAGE` env. The extra env check is
+/// what `coverage_active` (used only for the R9 exclude-glob, which is itself
+/// keyed to the coverage *flag*) doesn't need but the cache gate does: a user can
+/// engage coverage purely through `NODE_V8_COVERAGE=<dir>` with no flag, and a warm
+/// compile cache corrupts that path's ranges just the same. A user-set
+/// NODE_COMPILE_CACHE is intentionally NOT consulted here — see the call site for
+/// why a coverage run overrides even an explicit cache dir.
+fn coverage_active_for_cache(
+    user_args: &[String],
+    node_options: Option<&str>,
+    node_v8_coverage: Option<&str>,
+) -> bool {
+    coverage_active(user_args, node_options)
+        || node_v8_coverage.is_some_and(|v| !v.is_empty())
 }
 
 /// The `--test-coverage-exclude=<glob>` flag nub injects to keep its own preloaded
@@ -1732,6 +1830,45 @@ mod tests {
 
         // Coverage active but no resolvable preload → nothing to exclude.
         assert!(coverage_exclude_glob(&argv, None, None).is_none());
+    }
+
+    #[test]
+    fn compile_cache_coverage_gate_fires_on_every_coverage_channel() {
+        // The compile-cache/coverage gate (Fix 3): nub must set up NO compile cache
+        // when this run is collecting V8 coverage, because a warm cache collapses
+        // V8's per-branch ranges. Coverage engages through three channels — gate on
+        // all of them.
+        let cov_argv = vec![
+            "--test".to_string(),
+            "--experimental-test-coverage".to_string(),
+        ];
+        let plain_argv = vec!["app.js".to_string()];
+
+        // (1) Coverage via argv.
+        assert!(coverage_active_for_cache(&cov_argv, None, None));
+        // (2) Coverage via NODE_OPTIONS.
+        assert!(coverage_active_for_cache(
+            &plain_argv,
+            Some("--experimental-test-coverage"),
+            None
+        ));
+        // (3) Coverage via NODE_V8_COVERAGE env (no flag anywhere) — the channel
+        //     coverage_active (R9 exclude-glob) does NOT cover, but the cache gate
+        //     must, since `NODE_V8_COVERAGE=<dir> node app.js` collects coverage
+        //     with no flag.
+        assert!(coverage_active_for_cache(
+            &plain_argv,
+            None,
+            Some("/tmp/cov")
+        ));
+
+        // No coverage signal on any channel → gate stays OFF (cache enabled). An
+        // EMPTY NODE_V8_COVERAGE is not coverage (Node treats empty as disabled),
+        // and a user-set NODE_COMPILE_CACHE is intentionally not consulted here —
+        // its preservation is the caller's concern, not this gate's.
+        assert!(!coverage_active_for_cache(&plain_argv, None, None));
+        assert!(!coverage_active_for_cache(&plain_argv, Some("--enable-source-maps"), None));
+        assert!(!coverage_active_for_cache(&plain_argv, None, Some("")));
     }
 
     #[test]

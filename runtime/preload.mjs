@@ -26,6 +26,13 @@
 // side-effecting import has to precede the transform-core import. See
 // compile-cache-restore.mjs.
 import "./compile-cache-restore.mjs";
+// Floor bootstrap (Node < 22.3/20.16/18.20.4): stashes createRequire on a
+// module-scoped global for transform-core, which fetches its node: builtins via
+// process.getBuiltinModule and has no getBuiltinModule on the floor. MUST precede
+// the transform-core import so the global is set before transform-core's body
+// evaluates (ESM evaluates imports in source order). No-op on Node with
+// getBuiltinModule. See floor-builtin.mjs for why this is leak-safe.
+import "./floor-builtin.mjs";
 import module from "node:module";
 import { createRequire } from "node:module";
 import * as core from "./transform-core.mjs";

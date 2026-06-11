@@ -305,12 +305,18 @@ function installCjsRequireHooks(core, withClassicTranspile) {
     // to it. The one snag is that a registered customization hook makes Node thread a
     // `conditions` option that PnP rejects ("aren't supported by PnP yet
     // (conditions)"), so strip it first. The require/default condition PnP then
-    // applies is exactly right for `require()`. (Stripping is a harmless no-op when
-    // origResolveFilename is plain Node — i.e. not a PnP project.) This replaces the
-    // former `pnpapi.resolveRequest` reimplementation: simpler, and with no
-    // `findPnpApi` in the hot path there is no lookup-miss to leak a `conditions`
-    // crash on Windows.
-    if (options && "conditions" in options) {
+    // applies is exactly right for `require()`. This replaces the former
+    // `pnpapi.resolveRequest` reimplementation: simpler, and with no `findPnpApi` in
+    // the hot path there is no lookup-miss to leak a `conditions` crash on Windows.
+    //
+    // GATED ON PnP (`process.versions.pnp`). Off PnP the strip is NOT a harmless
+    // no-op: a user who passes custom `conditions` to require-side resolution via
+    // `module.registerHooks` (Node's module-hooks custom-conditions tests) relies on
+    // Node's own `_resolveFilename` honoring them, and unconditionally deleting the
+    // key silently dropped their conditions — breaking module-hooks/test-module-hooks-
+    // custom-conditions{,-cjs}. PnP is the only resolver that rejects `conditions`, so
+    // only strip when PnP is actually active; everywhere else conditions pass through.
+    if (process.versions.pnp && options && "conditions" in options) {
       options = { ...options };
       delete options.conditions;
     }
@@ -544,22 +550,44 @@ function wrapChildProcessCompileCache(cp) {
   };
 
   // Returns a possibly-rewritten options object with NODE_COMPILE_CACHE stripped
-  // from its env, after writing the sentinel keyed on THIS process's pid (= the
-  // grandchild's process.ppid). No-op unless the child env explicitly carries a
-  // live (non-empty, != "0") NODE_COMPILE_CACHE — an inherited (undefined env)
-  // value was already stripped from this process by nub, so nothing to do there.
+  // from the child's env, after writing the sentinel keyed on THIS process's pid
+  // (= the grandchild's process.ppid). Two source cases, both stripped:
+  //   • EXPLICIT env (options.env carries NODE_COMPILE_CACHE) — strip from it.
+  //   • INHERITED env (no options.env, child inherits this process's env) — when
+  //     OUR process.env carries a live NODE_COMPILE_CACHE, materialize an explicit
+  //     env from process.env with it removed. This case matters now that the
+  //     DEFAULT (nub-owned) cache also travels via the sentinel and gets restored
+  //     into process.env: a node child the user spawns with NO explicit env would
+  //     otherwise inherit it and enable the cache AT BOOTSTRAP — before any preload
+  //     gate — collapsing that child's V8 coverage if it runs under
+  //     --experimental-test-coverage (the test-runner coverage-width fixtures, which
+  //     are spawned with inherited env). Stripping here makes every node-target
+  //     child boot cache-off; its own preload re-enables the cache post-bootstrap
+  //     via reenableUserCompileCache UNLESS it's collecting coverage.
   const stripFromOptions = (options) => {
-    if (!options || typeof options !== "object") return options;
-    const env = options.env;
-    if (!env || typeof env !== "object") return options;
-    const dir = env.NODE_COMPILE_CACHE;
-    if (!dir || dir === "0") return options;
+    const inheritedDir = process.env.NODE_COMPILE_CACHE;
+    const opts = options && typeof options === "object" ? options : {};
+    const env = opts.env;
+    if (env && typeof env === "object") {
+      const dir = env.NODE_COMPILE_CACHE;
+      if (!dir || dir === "0") return options;
+      try {
+        writeFileSync(join(tmpdirNoOs(), `nub-ccache-${process.pid}`), String(dir));
+      } catch { return options; }
+      const newEnv = { ...env };
+      delete newEnv.NODE_COMPILE_CACHE;
+      return { ...opts, env: newEnv };
+    }
+    // Inherited env path: only act when this process actually carries a live cache
+    // dir (otherwise there is nothing for the child to inherit and we leave the
+    // spawn's env untouched — `undefined` keeps Node's default inheritance).
+    if (!inheritedDir || inheritedDir === "0") return options;
     try {
-      writeFileSync(join(tmpdirNoOs(), `nub-ccache-${process.pid}`), String(dir));
+      writeFileSync(join(tmpdirNoOs(), `nub-ccache-${process.pid}`), String(inheritedDir));
     } catch { return options; }
-    const newEnv = { ...env };
+    const newEnv = { ...process.env };
     delete newEnv.NODE_COMPILE_CACHE;
-    return { ...options, env: newEnv };
+    return { ...opts, env: newEnv };
   };
 
   // For (command, args?, options?) signatures the options object is the last arg
@@ -610,7 +638,46 @@ function wrapChildProcessCompileCache(cp) {
   };
 }
 
+// True when V8 code coverage is active for THIS process — `--experimental-test-
+// coverage` / a bare `--test-coverage*` flag in our own argv or execArgv, or a
+// non-empty NODE_V8_COVERAGE env. A WARM compile cache makes V8 coverage imprecise
+// (cached bytecode collapses/omits per-branch ranges, so a fixture's coverage
+// JSON loses `functions[].ranges[1]` and the line/branch percentages drift from
+// plain node). nub must therefore NOT (re)enable its compile cache for any process
+// that is collecting coverage. This mirrors spawn.rs's coverage gate, but catches
+// the case spawn.rs cannot see: a grandchild the USER's test code spawns directly
+// (e.g. `spawnSync(execPath, [fixture], { env: { NODE_V8_COVERAGE } })`), which
+// inherits nub's preload via NODE_OPTIONS but never goes through nub's Rust spawn
+// path — so the gate has to live here too. (Observed against parallel/test-v8-
+// coverage, test-runner-coverage-thresholds, and the test-runner coverage-width
+// snapshot tests, all of which warm-cache then collect coverage in a child.)
+function coverageActiveInProcess() {
+  if (process.env.NODE_V8_COVERAGE) return true;
+  const hasCovFlag = (a) =>
+    typeof a === "string" &&
+    (a === "--experimental-test-coverage" || a.startsWith("--test-coverage"));
+  return (process.execArgv || []).some(hasCovFlag) || (process.argv || []).some(hasCovFlag);
+}
+
 function reenableUserCompileCache() {
+  // Coverage active: leave the compile cache OFF so V8 collects precise per-branch
+  // ranges (a warm cache collapses them — see coverageActiveInProcess). Two things
+  // matter, because Node's test runner spawns a SEPARATE isolated child to run the
+  // covered fixture and that child enables its cache at BOOTSTRAP from an inherited
+  // NODE_COMPILE_CACHE — too early for any preload gate to catch:
+  //   (a) don't enableCompileCache in THIS process, and
+  //   (b) set NODE_DISABLE_COMPILE_CACHE=1 in our env so EVERY descendant (incl. the
+  //       test runner's isolated coverage child) boots with the cache off. Node
+  //       honors NODE_DISABLE_COMPILE_CACHE at bootstrap and it travels via the env,
+  //       reaching children nub never spawns itself. We do NOT clear NODE_COMPILE_CACHE
+  //       (user code may read it); the disable var takes precedence at bootstrap.
+  // This is the JS half of the compile-cache/coverage fix; spawn.rs is the Rust half
+  // (it never sets the DEFAULT cache when it can see coverage in nub's own
+  // argv/NODE_OPTIONS/NODE_V8_COVERAGE).
+  if (coverageActiveInProcess()) {
+    process.env.NODE_DISABLE_COMPILE_CACHE = "1";
+    return;
+  }
   const dir = process.env.NODE_COMPILE_CACHE;
   // "0" is nub's disable signal (see transform-core); anything else is the user's
   // real cache dir, which we re-point Node's compile cache at for THEIR modules.

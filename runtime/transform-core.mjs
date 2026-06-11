@@ -44,21 +44,40 @@
 // .getBuiltinModule` fetches node: builtins synchronously off the loader chain;
 // `createRequire(import.meta.url)` resolves the (now CommonJS-only) vendored
 // polyfills + the `@oxc-project/runtime` helpers from nub's distribution.
-// This file keeps its `export`s (it stays an ES module), but has ZERO static
-// imports, so `require(esm)` finds no dependency graph to route through the user.
+// This file keeps its `export`s (it stays an ES module) but has ZERO static
+// imports — INCLUDING zero static `import` of any `node:` builtin — so `require(esm)`
+// of transform-core finds no dependency graph to route through the user loader.
+// This is load-bearing, not cosmetic: transform-core previously carried a static
+// `import { createRequire } from "node:module"`. That import sat in transform-core's
+// static graph, so when nub's fast-tier preload.cjs does `require("./transform-core
+// .mjs")` (a `require(esm)`), Node instantiated transform-core by walking its static
+// import graph THROUGH the user's pre-registered `--experimental-loader` /
+// `module.register` chain — and a user resolve hook that rejects or rewrites
+// `node:module` (e.g. the example-loader that throws on any non-`./`/`../`/URL
+// specifier) then exploded nub's own load, while resolve-count loaders saw a phantom
+// `node:module` hit. (Observed against es-module/test-esm-example-loader,
+// -loader-chaining, -initialization, -preserve-symlinks-not-found, and
+// parallel/test-shadow-realm-custom-loaders.) The earlier comment here claimed the
+// `node:module` import was "never routed through a user loader hook" — that was
+// FALSE for the fast-tier `require(esm)` path, and is the bug this rewrite fixes.
+//
 // `process.getBuiltinModule` (Node 22.3 / backported to 20.16 / 18.20.4) fetches a
-// node: builtin synchronously off the loader chain. On older floor Node (18.19,
-// 20.11–20.15, 22.0–22.2) it's `undefined` — calling it threw `TypeError: process
-// .getBuiltinModule is not a function`, aborting every run. Fall back to a
-// createRequire bootstrapped from a single static `node:module` import. That import
-// is a BUILTIN specifier — resolved by Node natively, never routed through a user
-// loader hook (and resolved here at preload time, before any hook registers) — so
-// the "zero user-routable dependency graph for require(esm)" property still holds.
-import { createRequire as __bootstrapCreateRequire } from "node:module";
+// node: builtin synchronously OFF the loader chain, with no static import — so on
+// the fast tier (22.15+, the only tier that loads transform-core via `require(esm)`,
+// and where getBuiltinModule ALWAYS exists) there is nothing in the graph for a user
+// loader to observe. On the narrow FLOOR below 22.3/20.16/18.20.4 (18.19.x,
+// 20.11–20.15, 22.0–22.2) it's `undefined`; there, transform-core is loaded ONLY via
+// static ESM `import` from the compat-tier entries (preload.mjs main thread /
+// preload-async-hooks.mjs loader worker), both OFF any user loader chain — so the
+// floor's `node:module` access cannot leak. We get the floor's `createRequire` from
+// runtime/floor-builtin.mjs, which the compat-tier entries import AHEAD of
+// transform-core; it stashes `createRequire` on a module-scoped global. That static
+// `node:module` import lives in floor-builtin.mjs, which the fast tier never loads,
+// so it never enters the fast-tier `require(esm)` graph.
 const __getBuiltin =
   typeof process.getBuiltinModule === "function"
     ? (id) => process.getBuiltinModule(id)
-    : ((__r) => (id) => __r(id))(__bootstrapCreateRequire(import.meta.url));
+    : ((__r) => (id) => __r(id))(globalThis.__nubFloorCreateRequire(import.meta.url));
 
 const { createRequire } = __getBuiltin("node:module");
 const __require = createRequire(import.meta.url);
