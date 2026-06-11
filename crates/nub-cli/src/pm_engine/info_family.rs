@@ -287,7 +287,7 @@ fn run_list(typed: &str, args: &[String], force_long: bool) -> Result<i32> {
         // `long = true` and dispatches to list).
         cli.args.long = true;
     }
-    let session = super::engine_session(cli.dir.as_deref())?;
+    let session = super::engine_session_quiet(cli.dir.as_deref())?;
     if !cli.args.global
         && let Some(code) = no_lockfile_short_circuit(EngineRoot::WorkspaceOrProject, MSG_POPULATE)?
     {
@@ -306,7 +306,7 @@ fn run_why(typed: &str, args: &[String]) -> Result<i32> {
         Parsed::Args(c) => c,
         Parsed::Done(code) => return Ok(code),
     };
-    let session = super::engine_session(cli.dir.as_deref())?;
+    let session = super::engine_session_quiet(cli.dir.as_deref())?;
     if let Some(code) = no_lockfile_short_circuit(EngineRoot::WorkspaceOrProject, MSG_FIRST)? {
         return Ok(code);
     }
@@ -323,7 +323,7 @@ fn run_outdated(typed: &str, args: &[String]) -> Result<i32> {
         Parsed::Args(c) => c,
         Parsed::Done(code) => return Ok(code),
     };
-    let session = super::engine_session(cli.dir.as_deref())?;
+    let session = super::engine_session_quiet(cli.dir.as_deref())?;
     let filter = effective_filter(&cli.filter);
     // The engine reads at the project root, except: a `--filter` run
     // re-roots at the workspace root (`select_workspace_packages`), and `-w`
@@ -348,7 +348,7 @@ fn run_query(typed: &str, args: &[String]) -> Result<i32> {
         Parsed::Args(c) => c,
         Parsed::Done(code) => return Ok(code),
     };
-    let session = super::engine_session(cli.dir.as_deref())?;
+    let session = super::engine_session_quiet(cli.dir.as_deref())?;
     if let Some(code) = no_lockfile_short_circuit(EngineRoot::WorkspaceOrProject, MSG_FIRST)? {
         return Ok(code);
     }
@@ -365,7 +365,7 @@ fn run_audit(typed: &str, args: &[String]) -> Result<i32> {
         Parsed::Args(c) => c,
         Parsed::Done(code) => return Ok(code),
     };
-    let session = super::engine_session(cli.dir.as_deref())?;
+    let session = super::engine_session_quiet(cli.dir.as_deref())?;
     // Write gate: `--fix=update` rewrites the lockfile; a detected yarn.lock
     // is never mutated by the embedded engine (same policy + remedy shape as
     // the install gate). `--fix`/`--fix=override` only edit package.json.
@@ -397,7 +397,7 @@ fn run_licenses(typed: &str, args: &[String]) -> Result<i32> {
         Parsed::Args(c) => c,
         Parsed::Done(code) => return Ok(code),
     };
-    let session = super::engine_session(cli.dir.as_deref())?;
+    let session = super::engine_session_quiet(cli.dir.as_deref())?;
     if let Some(code) = no_lockfile_short_circuit(EngineRoot::Project, MSG_FIRST)? {
         return Ok(code);
     }
@@ -413,7 +413,7 @@ fn run_deprecations(typed: &str, args: &[String]) -> Result<i32> {
         Parsed::Args(c) => c,
         Parsed::Done(code) => return Ok(code),
     };
-    let session = super::engine_session(cli.dir.as_deref())?;
+    let session = super::engine_session_quiet(cli.dir.as_deref())?;
     if let Some(code) = no_lockfile_short_circuit(EngineRoot::Project, MSG_FIRST)? {
         return Ok(code);
     }
@@ -433,7 +433,7 @@ fn run_peers(typed: &str, args: &[String]) -> Result<i32> {
         Parsed::Args(c) => c,
         Parsed::Done(code) => return Ok(code),
     };
-    let session = super::engine_session(cli.dir.as_deref())?;
+    let session = super::engine_session_quiet(cli.dir.as_deref())?;
     // Missing lockfile is a miette error (`load_graph`) — rewrite covers it.
     finish(
         session
@@ -447,7 +447,7 @@ fn run_view(typed: &str, args: &[String]) -> Result<i32> {
         Parsed::Args(c) => c,
         Parsed::Done(code) => return Ok(code),
     };
-    let session = super::engine_session(cli.dir.as_deref())?;
+    let session = super::engine_session_quiet(cli.dir.as_deref())?;
     // Pure registry query: no lockfile involvement at all.
     finish(
         session
@@ -469,7 +469,7 @@ fn run_check(typed: &str, args: &[String]) -> Result<i32> {
         Parsed::Args(c) => c,
         Parsed::Done(code) => return Ok(code),
     };
-    let session = super::engine_session(cli.dir.as_deref())?;
+    let session = super::engine_session_quiet(cli.dir.as_deref())?;
     // Reads the *resolved* virtual store (node_modules/.nub under nub's
     // defaults); a never-installed project reports `checked 0 packages`
     // rather than erroring, so no pre-flight applies. Broken links exit 1
@@ -487,7 +487,7 @@ fn run_bin(typed: &str, args: &[String]) -> Result<i32> {
         Parsed::Args(c) => c,
         Parsed::Done(code) => return Ok(code),
     };
-    let session = super::engine_session(cli.dir.as_deref())?;
+    let session = super::engine_session_quiet(cli.dir.as_deref())?;
     // Pure path print (`<modulesDir>/.bin`, or the global bin dir under
     // `-g`); the directory need not exist.
     finish(session.runtime.block_on(aube::commands::bin::run(cli.args)))
@@ -498,7 +498,7 @@ fn run_root(typed: &str, args: &[String]) -> Result<i32> {
         Parsed::Args(c) => c,
         Parsed::Done(code) => return Ok(code),
     };
-    let session = super::engine_session(cli.dir.as_deref())?;
+    let session = super::engine_session_quiet(cli.dir.as_deref())?;
     // Pure path print (`<modulesDir>`, or the global package dir under `-g`).
     finish(
         session

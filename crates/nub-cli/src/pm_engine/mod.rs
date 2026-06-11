@@ -51,6 +51,7 @@
 //! branding in the document body — info_family module doc) — which error
 //! with honest per-verb messages in their family dispatchers.
 
+pub mod config_scope;
 pub mod info_family;
 pub mod install_family;
 pub mod log;
@@ -515,7 +516,7 @@ pub(crate) fn run_node_gyp_bootstrap(args: &[String]) -> Result<i32> {
     let [project_dir] = args else {
         anyhow::bail!("usage: nub __node-gyp-bootstrap <project-dir>");
     };
-    let session = engine_session(None)?;
+    let session = engine_session_quiet(None)?;
     let result = session.runtime.block_on(
         aube::commands::install::node_gyp_bootstrap::print_bootstrapped_binary(Path::new(
             project_dir,
@@ -577,6 +578,30 @@ pub(crate) struct EngineSession {
 /// land after it (they feed settings resolution, which no detection-path
 /// code consults).
 pub(crate) fn engine_session(dir: Option<&Path>) -> Result<EngineSession> {
+    engine_session_inner(dir, ConfigScopeNoise::Warn)
+}
+
+/// [`engine_session`] for the read-only / non-graph-mutating families
+/// (info, publish, store-config). The config-scoping FILTER still applies —
+/// `why` / `outdated` should reflect the same effective override set a real
+/// install would — but the user-facing scoping *warnings* and the
+/// `catalog:`-under-the-wrong-PM hard error are suppressed: those are
+/// install-time UX, and surfacing them on a `nub why` would be noise. See
+/// the config-scoping policy ([`config_scope`]).
+pub(crate) fn engine_session_quiet(dir: Option<&Path>) -> Result<EngineSession> {
+    engine_session_inner(dir, ConfigScopeNoise::Silent)
+}
+
+/// Whether [`engine_session_inner`] emits the config-scoping warnings and
+/// the catalog hard-error (install-family) or stays silent (read-only
+/// families) while still applying the scoping filter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfigScopeNoise {
+    Warn,
+    Silent,
+}
+
+fn engine_session_inner(dir: Option<&Path>, noise: ConfigScopeNoise) -> Result<EngineSession> {
     // Initialize the diagnostics recorder from AUBE_DIAG_* env vars so that
     // `AUBE_DIAG_SUMMARY=1 nub install` works the same as `AUBE_DIAG_SUMMARY=1
     // aube install`. The OnceLock inside diag::init() makes this idempotent.
@@ -593,6 +618,13 @@ pub(crate) fn engine_session(dir: Option<&Path>) -> Result<EngineSession> {
     // stream-time tool naming stay on the `nub/<ver>` product identity set in
     // [`engine_brand_preflight`] (telemetry never lies).
     aube::set_lifecycle_user_agent_product(lifecycle_ua_product(detected.as_ref(), &cwd));
+    // Config-scoping policy (CP-3): mirror the active PM's graph-shaping
+    // config (pins/catalogs), never silently. Computed AFTER identity
+    // resolves (it needs the role) and BEFORE the embedder defaults / engine
+    // run so the scoped override source and trusted-deps toggle are in place
+    // when the resolver reads them. Filter applies in every family; warnings
+    // + the catalog hard-error are install-family only (see `noise`).
+    apply_config_scope(detected.as_ref(), &cwd, noise)?;
     // Set-unless-user-set: ranks below CLI flags, env vars, and every
     // config file in the engine's settings precedence.
     aube::set_embedder_defaults(nub_setting_defaults(detected.as_ref()));
@@ -607,6 +639,163 @@ pub(crate) fn engine_session(dir: Option<&Path>) -> Result<EngineSession> {
         detected,
         runtime: build_runtime()?,
     })
+}
+
+/// Apply the config-scoping policy for one verb invocation: resolve the
+/// active-PM role, scope the manifest's graph-shaping override fields to
+/// that role's dialect, register the scoped source + trusted-deps toggle on
+/// the aube seam, and — for install-family verbs (`noise == Warn`) — emit
+/// the dim per-field ignore warnings and hard-error on a `catalog:`
+/// specifier under a role that doesn't honor catalogs.
+///
+/// The override FILTER applies in every family (so read-only queries see the
+/// same effective set an install would); only the warning/error surface is
+/// gated by `noise`. A missing or unparseable root manifest is not an error
+/// here — the engine surfaces that on its own path; we just leave the seams
+/// at their upstream defaults.
+fn apply_config_scope(
+    detected: Option<&DetectedLockfile>,
+    cwd: &Path,
+    noise: ConfigScopeNoise,
+) -> Result<()> {
+    use config_scope::Role;
+
+    let root = detected.map(|d| d.dir.as_path()).unwrap_or(cwd);
+    let manifest_path = root.join("package.json");
+    let Ok(manifest) = aube_manifest::PackageJson::from_path(&manifest_path) else {
+        return Ok(());
+    };
+
+    let declared = nub_core::pm::resolve::declared_pm_raw(cwd);
+    let role = config_scope::role_of(
+        declared.as_ref().map(|(n, _)| n.as_str()),
+        detected.map(|d| d.kind),
+    )
+    // Fresh, undeclared, no lockfile: nub identity (its un-branded
+    // cross-tool fields), matching the brand-symmetric default.
+    .unwrap_or(Role::Nub);
+    let (major, minor) = declared
+        .as_ref()
+        .and_then(|(_, v)| v.as_deref())
+        .map(parse_major_minor)
+        .unwrap_or((None, None));
+
+    // Scope the override sources to the role's dialect.
+    let tagged = manifest.tagged_overrides();
+    let (effective, ignored) = config_scope::scope_overrides(role, major, minor, &tagged);
+
+    // Register the scoped source as the engine's sole override source, and
+    // the trusted-deps toggle (only bun, only below the major that dropped
+    // it, honors `trustedDependencies`). Both are idempotent OnceLocks.
+    aube::set_embedder_overrides(Some(effective));
+    aube::set_trusted_dependencies_honored(config_scope::honors_trusted_dependencies(role, major));
+
+    if noise == ConfigScopeNoise::Warn {
+        // Catalog hard-error: a role that doesn't honor `catalog:` specifiers
+        // (npm/yarn/bun, pnpm<9) must mirror the real PM and refuse, rather
+        // than silently mis-resolve. nub-branded, role-named.
+        if !role_honors_catalog(role, major)
+            && let Some(spec) = first_catalog_specifier(&manifest)
+        {
+            return Err(catalog_unsupported_error(role, &spec));
+        }
+        emit_scope_warnings(role, &ignored);
+    }
+    Ok(())
+}
+
+/// Does the active PM honor `catalog:` specifiers? pnpm@9+ only — every
+/// other PM (npm/yarn/bun) and pnpm<9 hard-error on them. nub identity
+/// honors catalogs (an un-branded cross-tool field, like `workspaces`).
+fn role_honors_catalog(role: config_scope::Role, major: Option<u64>) -> bool {
+    use config_scope::Role;
+    match role {
+        Role::Pnpm => major.map(|m| m >= 9).unwrap_or(true),
+        Role::Nub => true,
+        Role::Npm | Role::Yarn | Role::Bun => false,
+    }
+}
+
+/// Find the first `catalog:`-prefixed dependency specifier in the root
+/// manifest's dependency maps, returning `"<name>: <spec>"` for the error
+/// message. Pre-resolve scan — the resolver would reach the same specifier
+/// later, but mirroring the PM means refusing up front with a clear message.
+fn first_catalog_specifier(manifest: &aube_manifest::PackageJson) -> Option<String> {
+    let maps = [
+        &manifest.dependencies,
+        &manifest.dev_dependencies,
+        &manifest.optional_dependencies,
+    ];
+    for map in maps {
+        for (name, spec) in map.iter() {
+            if spec.starts_with("catalog:") {
+                return Some(format!("{name}: {spec}"));
+            }
+        }
+    }
+    None
+}
+
+/// Hard error mirroring the active PM's refusal of a `catalog:` specifier —
+/// nub-branded, role-named, with the remedy.
+fn catalog_unsupported_error(role: config_scope::Role, spec: &str) -> anyhow::Error {
+    let pm = role.display();
+    anyhow::anyhow!(
+        "nub: `catalog:` specifier ({spec}) is not supported — this project uses {pm}, \
+         which doesn't implement catalogs (only pnpm@9+ does). Inline the version, or switch \
+         the project to pnpm (`nub pm use pnpm`)."
+    )
+}
+
+/// Parse the leading `<major>.<minor>` out of a declared `packageManager`
+/// version token. Tolerant of ranges/dist-tags (`^9`, `latest`) — returns
+/// `None` for any component it can't read, which the matrix treats as
+/// "assume modern/honoring".
+fn parse_major_minor(version: &str) -> (Option<u64>, Option<u64>) {
+    let trimmed = version.trim_start_matches(['^', '~', '>', '=', '<', 'v', ' ']);
+    let mut parts = trimmed.split('.');
+    let major = parts.next().and_then(|p| {
+        let digits: String = p.chars().take_while(|c| c.is_ascii_digit()).collect();
+        digits.parse::<u64>().ok()
+    });
+    let minor = parts.next().and_then(|p| {
+        let digits: String = p.chars().take_while(|c| c.is_ascii_digit()).collect();
+        digits.parse::<u64>().ok()
+    });
+    (major, minor)
+}
+
+/// Emit one dim warning line per graph-shaping field nub ignored under the
+/// active PM's dialect. Color-gated: dim only when stderr is a terminal (or
+/// `FORCE_COLOR` set) and `NO_COLOR` is unset; otherwise plain. Suppressed
+/// entirely when nothing was ignored (the common, portable case).
+fn emit_scope_warnings(role: config_scope::Role, ignored: &[config_scope::IgnoredField]) {
+    if ignored.is_empty() {
+        return;
+    }
+    let pm = role.display();
+    let dim = scope_warning_uses_dim();
+    for f in ignored {
+        let line = format!(
+            "nub: `{}` ignored — this project uses {pm}, which doesn't apply it. {}.",
+            f.field, f.fix
+        );
+        if dim {
+            eprintln!("\x1b[2m{line}\x1b[0m");
+        } else {
+            eprintln!("{line}");
+        }
+    }
+}
+
+/// Whether the scoping warning should be dim-styled: stderr is a terminal
+/// (or `FORCE_COLOR` is set) AND `NO_COLOR` is unset.
+fn scope_warning_uses_dim() -> bool {
+    use std::io::IsTerminal;
+    if std::env::var_os("NO_COLOR").is_some() {
+        return false;
+    }
+    std::io::stderr().is_terminal() || std::env::var_os("FORCE_COLOR").is_some()
 }
 
 /// The pnpm version the role-first UA advertises for a pnpm-role project with
@@ -648,28 +837,23 @@ fn compose_lifecycle_ua(
     let nub_version = env!("CARGO_PKG_VERSION");
     // The declared name is the role when it names an identity nub recognizes;
     // an unknown tool name (vlt, deno, …) falls through to the lockfile kind,
-    // exactly like identity resolution does.
+    // exactly like identity resolution does. Role mapping is shared with the
+    // config-scoping policy ([`config_scope::role_of`]) so the two never
+    // diverge; the UA needs the declared *version* token too, kept here.
     let declared_role = declared
         .as_ref()
         .filter(|(name, _)| matches!(name.as_str(), "npm" | "pnpm" | "yarn" | "bun" | "nub"))
         .map(|(name, version)| (name.clone(), version.clone()));
-    let role = declared_role
-        .as_ref()
-        .map(|(name, _)| name.clone())
-        .or_else(|| {
-            kind.map(|k| {
-                match k {
-                    LockfileKind::Pnpm => "pnpm",
-                    LockfileKind::Npm | LockfileKind::NpmShrinkwrap => "npm",
-                    LockfileKind::Yarn | LockfileKind::YarnBerry => "yarn",
-                    LockfileKind::Bun => "bun",
-                    // The generically named lock.yaml (the engine's `Aube` slot
-                    // under nub's filename toggle) is nub identity.
-                    LockfileKind::Aube => "nub",
-                }
-                .to_string()
-            })
-        });
+    let role = config_scope::role_of(declared.as_ref().map(|(n, _)| n.as_str()), kind).map(|r| {
+        match r {
+            config_scope::Role::Npm => "npm",
+            config_scope::Role::Pnpm => "pnpm",
+            config_scope::Role::Yarn => "yarn",
+            config_scope::Role::Bun => "bun",
+            config_scope::Role::Nub => "nub",
+        }
+        .to_string()
+    });
     match role.as_deref() {
         // Compat mode: the incumbent's token first, nub always second. The
         // version is the pin when the declaration supplied one, else the

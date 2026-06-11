@@ -135,7 +135,7 @@ where
         Parsed::Ok(wrap) => wrap.args,
         Parsed::Exit(code) => return Ok(code),
     };
-    let session = super::engine_session(None)?;
+    let session = super::engine_session_quiet(None)?;
     match session.runtime.block_on(run(parsed)) {
         Ok(()) => Ok(0),
         Err(report) => Ok(present::emit_report(&report)),
@@ -157,7 +157,7 @@ pub(super) fn run_npm_fallback(
         Parsed::Ok(wrap) => wrap.args,
         Parsed::Exit(code) => return Ok(code),
     };
-    let _session = super::engine_session(None)?;
+    let _session = super::engine_session_quiet(None)?;
     match aube::commands::npm_fallback::run(canonical, &parsed) {
         Ok(code) => Ok(code),
         Err(report) => Ok(present::emit_report(&report)),
@@ -231,7 +231,7 @@ fn run_publish(typed: &str, args: &[String]) -> Result<i32> {
         Parsed::Exit(code) => return Ok(code),
     };
     let filter = wrap.filter.effective();
-    let session = super::engine_session(None)?;
+    let session = super::engine_session_quiet(None)?;
     match session
         .runtime
         .block_on(aube::commands::publish::run(wrap.args, filter))
