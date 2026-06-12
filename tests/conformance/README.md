@@ -33,7 +33,20 @@ All 16 legs PASS on this host:
 | peers | B | yarn | 1.13.0 | PASS |
 | peers | B | bun | 1.3.14 | PASS |
 
-Note: pnpm 11 is not yet available on this host (pnpm 10.15.1 is the current version). Add a pnpm 11 leg when the host is upgraded — pnpm 9→10 changed the lockfile format (`lockfileVersion: '9.0'`), so 10→11 should be confirmed.
+The pnpm-11 leg runs separately via `run-pnpm11.sh` (uses `npx pnpm@latest-11`). See the pnpm-11 matrix below.
+
+## pnpm-11 matrix (as of 2026-06-11)
+
+pnpm 11.6.0 via `npx pnpm@latest-11`. **Finding: pnpm 11 still uses `lockfileVersion: '9.0'` — the format version did not change between pnpm 10 and 11.** All 4 legs pass.
+
+| fixture | dir | pm | pm-version | lockfileVersion | result |
+| --- | --- | --- | --- | --- | --- |
+| simple | A | pnpm | 11.6.0 | 9.0 | PASS |
+| simple | B | pnpm | 11.6.0 | 9.0 | PASS |
+| peers | A | pnpm | 11.6.0 | 9.0 | PASS |
+| peers | B | pnpm | 11.6.0 | 9.0 | PASS |
+
+Direction A: pnpm 11 writes `pnpm-lock.yaml` (lockfileVersion 9.0) → nub `--frozen-lockfile` installs from it — succeeds. Direction B: nub writes `pnpm-lock.yaml` (lockfileVersion 9.0, with an extra `time:` section pnpm 11 also accepts) → pnpm 11 `--frozen-lockfile` reports "Lockfile is up to date, resolution step is skipped" and zero-churns.
 
 ## Fixtures
 
@@ -53,9 +66,17 @@ tests/conformance/run.sh target/release/nub peers # single fixture
 KEEP=1 tests/conformance/run.sh                   # keep sandbox for forensics
 SANDBOX_ROOT=/tmp/my-sandbox tests/conformance/run.sh  # reuse/inspect a specific sandbox
 SKIP_YARN=1 tests/conformance/run.sh              # skip yarn legs
+
+# pnpm-11 leg (separate script — uses npx pnpm@latest-11, no global install needed)
+tests/conformance/run-pnpm11.sh
+tests/conformance/run-pnpm11.sh target/debug/nub
+PNPM11_VERSION=11.6.0 tests/conformance/run-pnpm11.sh   # pin exact version
+KEEP=1 tests/conformance/run-pnpm11.sh                  # keep sandbox
 ```
 
 Requirements: network access to the npm registry (these are real installs), `node` on PATH, and each PM you want to exercise on PATH. Missing PMs print a `NOTE:` line and their legs are skipped — the suite does not fail on a missing tool.
+
+`run-pnpm11.sh` requires `npm`/`npx` on PATH (for `npx pnpm@latest-11`). If npx is absent, set `PNPM11_BIN=<path>` to an explicit pnpm 11 binary. Docker mode (`PNPM11_USE_DOCKER=1`) is also supported as a last resort but requires Docker Desktop running.
 
 The sandbox redirects `HOME` and all `XDG_*` dirs to a fresh temp root so no dev-box `.npmrc`, caches, or PM stores leak in and nothing leaks out. On failure the sandbox is kept and the per-leg log (`logs/<fixture>--<dir>--<pm>.log`) and staged project (`runs/<fixture>--<dir>--<pm>/`) are available for forensics.
 
