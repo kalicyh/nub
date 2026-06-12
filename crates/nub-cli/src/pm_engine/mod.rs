@@ -1160,85 +1160,91 @@ pub(crate) fn engine_brand_preflight() {
     // completely: `pnpm-workspace.yaml` + `pnpm.*` stay live exactly as
     // before. The probe is engine-free (plain manifest/lockfile-presence
     // reads) because these getters freeze before identity resolution runs.
-    let nub_identity = std::env::current_dir()
+    // ONE walk up the tree, ONE `current_dir()` read, resolving the full
+    // surface classification (see [`resolve_config_surface`]).
+    let surface = std::env::current_dir()
         .ok()
-        .and_then(|cwd| nub_identity_dir(&cwd));
-    if let Some(dir) = &nub_identity {
-        aube::set_workspace_yaml_names(&[]);
-        aube::set_manifest_config_namespaces(&[""]);
-        // pnpm's global `~/.config/pnpm/auth.ini` is a pnpm-NAMED path, so
-        // under nub identity (incumbent is not pnpm) it is not read at all —
-        // a name-based rule: anything with "pnpm" in the path is off unless
-        // pnpm is the incumbent, impact-irrelevant (the maintainer 2026-06-11). The
-        // `.npmrc` / `npmrcAuthFile` auth sources stay live.
-        aube::set_pnpm_auth_ini_enabled(false);
-        // A stray pnpm-workspace.yaml under nub identity (branch merge,
-        // tutorial copy-paste) is ignore-with-warning, never read and never
-        // silent: deterministic nub-pure behavior, one warning, remedies
-        // named (the maintainer 2026-06-10, supersedes read-with-warning).
-        if dir.join("pnpm-workspace.yaml").is_file() {
-            eprintln!(
-                "nub: pnpm-workspace.yaml is not read under nub identity — migrate it \
+        .map(|cwd| resolve_config_surface(&cwd))
+        .unwrap_or(ConfigSurface::PnpmOrFresh);
+    match surface {
+        ConfigSurface::NubIdentity(dir) => {
+            aube::set_workspace_yaml_names(&[]);
+            aube::set_manifest_config_namespaces(&[""]);
+            // pnpm's global `~/.config/pnpm/auth.ini` is a pnpm-NAMED path, so
+            // under nub identity (incumbent is not pnpm) it is not read at all —
+            // a name-based rule: anything with "pnpm" in the path is off unless
+            // pnpm is the incumbent, impact-irrelevant (the maintainer 2026-06-11). The
+            // `.npmrc` / `npmrcAuthFile` auth sources stay live.
+            aube::set_pnpm_auth_ini_enabled(false);
+            // A stray pnpm-workspace.yaml under nub identity (branch merge,
+            // tutorial copy-paste) is ignore-with-warning, never read and never
+            // silent: deterministic nub-pure behavior, one warning, remedies
+            // named (the maintainer 2026-06-10, supersedes read-with-warning).
+            if dir.join("pnpm-workspace.yaml").is_file() {
+                eprintln!(
+                    "nub: pnpm-workspace.yaml is not read under nub identity — migrate it \
                  (`nub pm use nub`), delete it, or return to pnpm (`nub pm use pnpm`)."
-            );
-        }
-    } else if let Some(cwd) = std::env::current_dir()
-        .ok()
-        .filter(|cwd| non_pnpm_role(cwd))
-    {
-        // Compat mode, but the incumbent is npm/yarn/bun — NOT pnpm. The
-        // pnpm-specific config surface is theirs to ignore: a stray
-        // `pnpm-workspace.yaml` or a `package.json#pnpm.*` object in an npm /
-        // yarn / bun project is another tool's state, exactly as it is under
-        // nub identity (a yarn repo someone copied a pnpm tutorial's workspace
-        // yaml into must not silently adopt its `packages`/`node-linker`). The
-        // ecosystem-neutral surface stays live: `.npmrc`, and top-level
-        // `workspaces`/`overrides`/`allowBuilds` via the manifest root.
-        aube::set_workspace_yaml_names(&[]);
-        aube::set_manifest_config_namespaces(&[""]);
-        // The cwd-default `.pnpmfile.cjs`/`.mjs` is pnpm-proprietary too, and
-        // unlike a workspace-yaml *it shapes resolution* — its `readPackage` /
-        // `afterAllResolved` hooks rewrite the dep graph. Under a non-pnpm
-        // incumbent it's another tool's config: gate the default arm off so it
-        // isn't silently honored. Explicit `--pnpmfile`/`--global-pnpmfile`
-        // overrides still load (a path named on purpose). One dim warning when
-        // a present file is suppressed, matching the pnpm-workspace.yaml
-        // ignore-with-warning pattern.
-        aube::set_pnpmfile_default_enabled(false);
-        // pnpm's global `~/.config/pnpm/auth.ini` is a pnpm-NAMED path: under
-        // a non-pnpm incumbent (npm/yarn/bun) it is another tool's file and is
-        // not read at all. Name-based, impact-irrelevant — the earlier
-        // "auth.ini is exempt, cross-tool auth, no resolution impact" carve-out
-        // was reversed (the maintainer 2026-06-11): the rule keys on the pnpm name in
-        // the path, not on whether the read can change resolution. The
-        // ecosystem-neutral `.npmrc` / `npmrcAuthFile` auth sources stay live.
-        aube::set_pnpm_auth_ini_enabled(false);
-        if let Some(present) = aube::pnpmfile_default_path(&cwd) {
-            let name = present
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(".pnpmfile.cjs");
-            let line = format!(
-                "nub: `{name}` ignored — this project uses {}, which doesn't apply pnpmfile hooks. \
-                 Remove it, name it explicitly with `--pnpmfile`, or switch to pnpm (`nub pm use pnpm`).",
-                non_pnpm_role_display(&cwd),
-            );
-            if scope_warning_uses_dim() {
-                eprintln!("\x1b[2m{line}\x1b[0m");
-            } else {
-                eprintln!("{line}");
+                );
             }
         }
-    } else {
-        // pnpm role (or fresh): play the incumbent completely. Workspace
-        // yamls: `pnpm-workspace.yaml` only. An `aube-workspace.yaml` some
-        // other tool left on disk is neither read nor chosen as the
-        // fresh-write target (`approve-builds` writes its allowlist there).
-        aube::set_workspace_yaml_names(&["pnpm-workspace.yaml"]);
-        // package.json config namespace: `pnpm` only — an `aube` object in a
-        // manifest is another tool's state; nub neither consults nor mutates
-        // it (`remove`'s sidecar pruning, `--allow-build`'s fallback writes).
-        aube::set_manifest_config_namespaces(&["pnpm"]);
+        ConfigSurface::NonPnpmCompat(role) => {
+            // Compat mode, but the incumbent is npm/yarn/bun — NOT pnpm. The
+            // pnpm-specific config surface is theirs to ignore: a stray
+            // `pnpm-workspace.yaml` or a `package.json#pnpm.*` object in an npm /
+            // yarn / bun project is another tool's state, exactly as it is under
+            // nub identity (a yarn repo someone copied a pnpm tutorial's workspace
+            // yaml into must not silently adopt its `packages`/`node-linker`). The
+            // ecosystem-neutral surface stays live: `.npmrc`, and top-level
+            // `workspaces`/`overrides`/`allowBuilds` via the manifest root.
+            aube::set_workspace_yaml_names(&[]);
+            aube::set_manifest_config_namespaces(&[""]);
+            // The cwd-default `.pnpmfile.cjs`/`.mjs` is pnpm-proprietary too, and
+            // unlike a workspace-yaml *it shapes resolution* — its `readPackage` /
+            // `afterAllResolved` hooks rewrite the dep graph. Under a non-pnpm
+            // incumbent it's another tool's config: gate the default arm off so it
+            // isn't silently honored. Explicit `--pnpmfile`/`--global-pnpmfile`
+            // overrides still load (a path named on purpose). One dim warning when
+            // a present file is suppressed, matching the pnpm-workspace.yaml
+            // ignore-with-warning pattern.
+            aube::set_pnpmfile_default_enabled(false);
+            // pnpm's global `~/.config/pnpm/auth.ini` is a pnpm-NAMED path: under
+            // a non-pnpm incumbent (npm/yarn/bun) it is another tool's file and is
+            // not read at all. Name-based, impact-irrelevant — the earlier
+            // "auth.ini is exempt, cross-tool auth, no resolution impact" carve-out
+            // was reversed (the maintainer 2026-06-11): the rule keys on the pnpm name in
+            // the path, not on whether the read can change resolution. The
+            // ecosystem-neutral `.npmrc` / `npmrcAuthFile` auth sources stay live.
+            aube::set_pnpm_auth_ini_enabled(false);
+            if let Some(present) = std::env::current_dir()
+                .ok()
+                .and_then(|cwd| aube::pnpmfile_default_path(&cwd))
+            {
+                let name = present
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(".pnpmfile.cjs");
+                let line = format!(
+                    "nub: `{name}` ignored — this project uses {role}, which doesn't apply pnpmfile hooks. \
+                 Remove it, name it explicitly with `--pnpmfile`, or switch to pnpm (`nub pm use pnpm`)."
+                );
+                if scope_warning_uses_dim() {
+                    eprintln!("\x1b[2m{line}\x1b[0m");
+                } else {
+                    eprintln!("{line}");
+                }
+            }
+        }
+        ConfigSurface::PnpmOrFresh => {
+            // pnpm role (or fresh): play the incumbent completely. Workspace
+            // yamls: `pnpm-workspace.yaml` only. An `aube-workspace.yaml` some
+            // other tool left on disk is neither read nor chosen as the
+            // fresh-write target (`approve-builds` writes its allowlist there).
+            aube::set_workspace_yaml_names(&["pnpm-workspace.yaml"]);
+            // package.json config namespace: `pnpm` only — an `aube` object in a
+            // manifest is another tool's state; nub neither consults nor mutates
+            // it (`remove`'s sidecar pruning, `--allow-build`'s fallback writes).
+            aube::set_manifest_config_namespaces(&["pnpm"]);
+        }
     }
     // The engine's canonical-lockfile slot carries nub's generic `lock.yaml`
     // (two-mode model: nub identity = lock.yaml, pnpm-v9 bytes, deliberately
@@ -1304,104 +1310,64 @@ pub(crate) fn engine_brand_preflight() {
     }
 }
 
-/// Engine-free probe: is the project at `cwd` (walking up, same 16-level
-/// budget as identity resolution) under NUB identity? Drives the role-gated
-/// config surface in [`engine_brand_preflight`], which must decide BEFORE
-/// any engine code reads project state (the config getters freeze on first
-/// read — full identity resolution itself reads workspace config
-/// transitively, so it can't be the input here). Plain `package.json` and
-/// lockfile-presence reads only.
-///
-/// Per level: a declaration decides (`nub` → nub identity, anything else →
-/// compat); undeclared, a lone `lock.yaml` decides nub; any foreign lockfile
-/// decides compat (a `lock.yaml` BESIDE a foreign one is the ambiguity state
-/// — compat surface here, and resolution errors loudly right after).
-/// Nothing anywhere = fresh = compat surface (a pnpm-workspace.yaml with no
-/// lockfile is still a pnpm-shaped project; Axiom 4 gives fresh projects
-/// pnpm-format artifacts). Returns the deciding directory so the caller can
-/// warn about a stray yaml sitting next to it.
-fn nub_identity_dir(cwd: &Path) -> Option<PathBuf> {
-    const FOREIGN: &[&str] = &[
-        "pnpm-lock.yaml",
-        "package-lock.json",
-        "npm-shrinkwrap.json",
-        "yarn.lock",
-        "bun.lock",
-        "bun.lockb",
-    ];
-    let mut dir = cwd.to_path_buf();
-    for _ in 0..16 {
-        if let Some(decl) = aube_lockfile::declared_package_manager(&dir) {
-            return (decl.name == "nub").then_some(dir);
-        }
-        let nub_lock = dir.join(use_align::NUB_LOCKFILE).is_file();
-        let foreign = FOREIGN.iter().any(|f| dir.join(f).is_file());
-        match (nub_lock, foreign) {
-            (true, false) => return Some(dir),
-            (false, false) => {}
-            _ => return None,
-        }
-        if !dir.pop() {
-            break;
-        }
-    }
-    None
+/// The role-gated config surface for a project, resolved by ONE engine-free
+/// walk up the directory tree. This is the single source of truth for the
+/// brand/config-surface decision in [`engine_brand_preflight`], replacing
+/// three separate walks (`nub_identity_dir` / `non_pnpm_role` /
+/// `non_pnpm_role_display`) that re-derived overlapping slices of the same
+/// classification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ConfigSurface {
+    /// Project is under NUB identity. The pnpm-specific surface is OFF and
+    /// the manifest config home is the root (`""`); the carried directory is
+    /// the deciding level, so the caller can warn about a stray
+    /// `pnpm-workspace.yaml` sitting beside it.
+    NubIdentity(PathBuf),
+    /// Compat mode with a NON-pnpm incumbent (npm / yarn / bun). The
+    /// pnpm-specific surface is OFF (it's another tool's state); the carried
+    /// name is the incumbent for user-facing warning text.
+    NonPnpmCompat(&'static str),
+    /// pnpm role, or a fresh project (Axiom 4 gives fresh projects
+    /// pnpm-format artifacts): play the pnpm incumbent completely — the
+    /// pnpm-specific surface stays live.
+    PnpmOrFresh,
 }
 
-/// Engine-free probe: is the project at `cwd` (walking up, same budget as
-/// [`nub_identity_dir`]) a NON-pnpm role — npm, yarn, or bun? Drives the
-/// role-gated config surface in [`engine_brand_preflight`]: a non-pnpm
-/// incumbent has the pnpm-specific surface (`pnpm-workspace.yaml`, the
-/// `package.json#pnpm.*` namespace) turned OFF, so its stray pnpm-shaped state
-/// is never read. Called only when [`nub_identity_dir`] already returned
-/// `None`, so nub identity is off the table here; the remaining outcomes are
-/// pnpm-role / non-pnpm-role / fresh.
+/// Engine-free, single-walk resolution of the project's [`ConfigSurface`]
+/// for `cwd` (walking up, same 16-level budget as identity resolution).
+/// Drives the role-gated config surface in [`engine_brand_preflight`], which
+/// must decide BEFORE any engine code reads project state — the config
+/// getters freeze on first read, and full identity resolution itself reads
+/// workspace config transitively, so it can't be the input here. Plain
+/// `package.json` and lockfile-presence reads only.
 ///
-/// Per level (engine-free, plain manifest/lockfile-presence reads, like the
-/// identity probe): a declaration decides by name — `npm`/`yarn`/`bun` →
-/// non-pnpm; `pnpm`/`nub`/anything else → pnpm-shaped surface (conservative:
-/// an unknown declared tool keeps the full compat surface). Undeclared, a lone
-/// foreign npm/yarn/bun lockfile decides non-pnpm; a `pnpm-lock.yaml` (alone or
-/// beside a foreign one — the ambiguity the engine errors on) keeps the pnpm
-/// surface. Nothing anywhere = fresh = pnpm-shaped (Axiom 4: fresh projects get
-/// pnpm-format artifacts).
-fn non_pnpm_role(cwd: &Path) -> bool {
-    const FOREIGN_NON_PNPM: &[&str] = &[
-        "package-lock.json",
-        "npm-shrinkwrap.json",
-        "yarn.lock",
-        "bun.lock",
-        "bun.lockb",
-    ];
-    let mut dir = cwd.to_path_buf();
-    for _ in 0..16 {
-        if let Some(decl) = aube_lockfile::declared_package_manager(&dir) {
-            return matches!(decl.name.as_str(), "npm" | "yarn" | "bun");
-        }
-        let pnpm_lock = dir.join("pnpm-lock.yaml").is_file();
-        let foreign = FOREIGN_NON_PNPM.iter().any(|f| dir.join(f).is_file());
-        match (pnpm_lock, foreign) {
-            // A pnpm-lock.yaml present (even beside a foreign one — the
-            // ambiguity state the engine errors on) keeps the pnpm surface.
-            (true, _) => return false,
-            (false, true) => return true,
-            (false, false) => {}
-        }
-        if !dir.pop() {
-            break;
-        }
-    }
-    false
-}
-
-/// The incumbent PM name for a non-pnpm-role project at `cwd` — `npm`,
-/// `yarn`, or `bun` — for user-facing warning text. Mirrors
-/// [`non_pnpm_role`]'s walk and decision order (declaration first,
-/// foreign lockfile second). Falls back to `"npm"` if the role flipped
-/// out from under us (should not happen: callers gate on `non_pnpm_role`
-/// first), so the warning always names a concrete tool.
-fn non_pnpm_role_display(cwd: &Path) -> &'static str {
-    const FOREIGN: &[(&str, &str)] = &[
+/// This unifies what used to be three independent walks. It is
+/// behavior-identical to the old layered logic: the per-level decision below
+/// is the provable merge of the old `nub_identity_dir` (NUB-first) and
+/// `non_pnpm_role` / `non_pnpm_role_display` (compat-classification) passes.
+/// The key equivalence: the only level a single pass keeps walking past is a
+/// COMPLETELY empty one (no declaration, no `lock.yaml`, no pnpm/foreign
+/// lockfile) — and that is exactly the level both old passes also walked
+/// past, so deciding terminally at the first non-empty level reproduces both.
+///
+/// Per level:
+/// - A declaration decides by name: `nub` → nub identity; `npm`/`yarn`/`bun`
+///   → non-pnpm compat (named); `pnpm`/anything-else → pnpm-shaped surface
+///   (conservative — an unknown declared tool keeps the full compat surface).
+/// - Undeclared: a lone `lock.yaml` (no pnpm/foreign lockfile beside it) →
+///   nub identity. A `pnpm-lock.yaml` (alone, or beside anything — the
+///   ambiguity state the engine errors on loudly right after) keeps the pnpm
+///   surface. A foreign npm/yarn/bun lockfile with no pnpm-lock → non-pnpm
+///   compat (named after the lockfile). A `lock.yaml` BESIDE a foreign one is
+///   the ambiguity state — surface follows the foreign lockfile, exactly as
+///   the old probes resolved it.
+/// - A completely empty level → keep walking. Nothing anywhere = fresh =
+///   pnpm-shaped (a `pnpm-workspace.yaml` with no lockfile is still a
+///   pnpm-shaped project).
+fn resolve_config_surface(cwd: &Path) -> ConfigSurface {
+    // npm/yarn/bun-owned lockfiles, paired with the incumbent name (order
+    // mirrors the old `non_pnpm_role_display` precedence for the name pick).
+    const FOREIGN_NON_PNPM: &[(&str, &str)] = &[
         ("package-lock.json", "npm"),
         ("npm-shrinkwrap.json", "npm"),
         ("yarn.lock", "yarn"),
@@ -1412,22 +1378,41 @@ fn non_pnpm_role_display(cwd: &Path) -> &'static str {
     for _ in 0..16 {
         if let Some(decl) = aube_lockfile::declared_package_manager(&dir) {
             return match decl.name.as_str() {
-                "yarn" => "yarn",
-                "bun" => "bun",
-                _ => "npm",
+                "nub" => ConfigSurface::NubIdentity(dir),
+                "npm" => ConfigSurface::NonPnpmCompat("npm"),
+                "yarn" => ConfigSurface::NonPnpmCompat("yarn"),
+                "bun" => ConfigSurface::NonPnpmCompat("bun"),
+                // pnpm / unknown tool: keep the full pnpm-shaped surface.
+                _ => ConfigSurface::PnpmOrFresh,
             };
         }
-        if dir.join("pnpm-lock.yaml").is_file() {
-            break;
+        let nub_lock = dir.join(use_align::NUB_LOCKFILE).is_file();
+        let pnpm_lock = dir.join("pnpm-lock.yaml").is_file();
+        let foreign = FOREIGN_NON_PNPM
+            .iter()
+            .find(|(f, _)| dir.join(f).is_file())
+            .map(|(_, name)| *name);
+        // A pnpm-lock.yaml present (even beside a foreign one — the ambiguity
+        // the engine errors on) keeps the pnpm surface, outranking everything.
+        if pnpm_lock {
+            return ConfigSurface::PnpmOrFresh;
         }
-        if let Some((_, name)) = FOREIGN.iter().find(|(f, _)| dir.join(f).is_file()) {
-            return name;
+        // A foreign npm/yarn/bun lockfile (with or without a lock.yaml beside
+        // it — the ambiguity state) → non-pnpm compat.
+        if let Some(name) = foreign {
+            return ConfigSurface::NonPnpmCompat(name);
         }
+        // No pnpm/foreign lockfile: a lone lock.yaml decides nub identity.
+        if nub_lock {
+            return ConfigSurface::NubIdentity(dir);
+        }
+        // Completely empty level — keep walking.
         if !dir.pop() {
             break;
         }
     }
-    "npm"
+    // Nothing decided anywhere within the walk: fresh = pnpm-shaped.
+    ConfigSurface::PnpmOrFresh
 }
 
 /// Nub's replacement setting defaults, fed to the engine's embedder-defaults
@@ -1704,7 +1689,7 @@ mod tests {
     // engines.aube case in `tests/install_engine.rs`.
 
     #[test]
-    fn nub_identity_probe_follows_declaration_then_lone_lock_yaml() {
+    fn config_surface_resolves_identity_then_compat_role_in_one_walk() {
         let root = |files: &[(&str, &str)]| {
             let dir = tempfile::tempdir().unwrap();
             for (name, body) in files {
@@ -1712,90 +1697,119 @@ mod tests {
             }
             dir
         };
+        let is_nub = |s: ConfigSurface| matches!(s, ConfigSurface::NubIdentity(_));
 
-        // Declaration decides, both ways.
+        // ── declaration decides by name ──────────────────────────────────
         let d = root(&[("package.json", r#"{"packageManager":"nub@0.1.0"}"#)]);
-        assert!(nub_identity_dir(d.path()).is_some());
+        assert!(is_nub(resolve_config_surface(d.path())));
+        // A pnpm declaration beats a lock.yaml for the config surface.
         let d = root(&[
             ("package.json", r#"{"packageManager":"pnpm@10.0.0"}"#),
             ("lock.yaml", "lockfileVersion: '9.0'\n"),
         ]);
-        assert!(
-            nub_identity_dir(d.path()).is_none(),
-            "a pnpm declaration beats a lock.yaml for the config surface"
-        );
+        assert_eq!(resolve_config_surface(d.path()), ConfigSurface::PnpmOrFresh);
+        // npm/yarn/bun declarations → non-pnpm compat, named after the tool.
+        for (pm, name) in [
+            ("npm@10.0.0", "npm"),
+            ("yarn@4.0.0", "yarn"),
+            ("bun@1.1.0", "bun"),
+        ] {
+            let d = root(&[("package.json", &format!(r#"{{"packageManager":"{pm}"}}"#))]);
+            assert_eq!(
+                resolve_config_surface(d.path()),
+                ConfigSurface::NonPnpmCompat(name),
+                "{pm} is a non-pnpm compat role"
+            );
+        }
+        // pnpm keeps the full surface; an unknown tool stays conservative
+        // (full pnpm-shaped surface), never gated off by mistake.
+        for pm in ["pnpm@9.0.0", "vlt@1.0.0"] {
+            let d = root(&[("package.json", &format!(r#"{{"packageManager":"{pm}"}}"#))]);
+            assert_eq!(
+                resolve_config_surface(d.path()),
+                ConfigSurface::PnpmOrFresh,
+                "{pm} keeps the pnpm surface"
+            );
+        }
 
-        // Undeclared: a lone lock.yaml is nub; beside a foreign lockfile it
-        // is the ambiguity state (compat surface, resolution errors loudly).
+        // ── undeclared: lockfile presence decides ────────────────────────
+        // A lone lock.yaml → nub identity, carrying the deciding dir.
         let d = root(&[
             ("package.json", "{}"),
             ("lock.yaml", "lockfileVersion: '9.0'\n"),
         ]);
-        assert!(nub_identity_dir(d.path()).is_some());
+        assert_eq!(
+            resolve_config_surface(d.path()),
+            ConfigSurface::NubIdentity(d.path().to_path_buf())
+        );
+        // lock.yaml beside a pnpm-lock.yaml is the ambiguity state → pnpm
+        // surface (resolution errors loudly right after).
         let d = root(&[
             ("package.json", "{}"),
             ("lock.yaml", "lockfileVersion: '9.0'\n"),
             ("pnpm-lock.yaml", "lockfileVersion: '9.0'\n"),
         ]);
-        assert!(nub_identity_dir(d.path()).is_none());
+        assert_eq!(resolve_config_surface(d.path()), ConfigSurface::PnpmOrFresh);
+        // lock.yaml beside a FOREIGN npm/yarn/bun lockfile (also ambiguity) →
+        // non-pnpm compat, named after the foreign lockfile. This pins the
+        // merged-walk contract: the old `nub_identity_dir` returned None here
+        // and `non_pnpm_role` returned true → the surface is NonPnpmCompat.
+        let d = root(&[
+            ("package.json", "{}"),
+            ("lock.yaml", "lockfileVersion: '9.0'\n"),
+            ("yarn.lock", "# yarn\n"),
+        ]);
+        assert_eq!(
+            resolve_config_surface(d.path()),
+            ConfigSurface::NonPnpmCompat("yarn")
+        );
+        // A lone foreign lockfile → non-pnpm compat.
+        let d = root(&[("package.json", "{}"), ("yarn.lock", "# yarn\n")]);
+        assert_eq!(
+            resolve_config_surface(d.path()),
+            ConfigSurface::NonPnpmCompat("yarn")
+        );
+        // A pnpm-lock.yaml beside a foreign one → pnpm surface (pnpm-lock
+        // outranks the foreign lockfile in the merged walk).
+        let d = root(&[
+            ("package.json", "{}"),
+            ("pnpm-lock.yaml", "lockfileVersion: '9.0'\n"),
+            ("yarn.lock", "# yarn\n"),
+        ]);
+        assert_eq!(resolve_config_surface(d.path()), ConfigSurface::PnpmOrFresh);
+        // bun.lockb (binary) is a foreign bun lockfile for surface purposes.
+        let d = root(&[("package.json", "{}"), ("bun.lockb", "\0")]);
+        assert_eq!(
+            resolve_config_surface(d.path()),
+            ConfigSurface::NonPnpmCompat("bun")
+        );
 
-        // Fresh (nothing anywhere within the walk) = compat surface; and the
-        // probe walks up from a member dir to the deciding root.
+        // ── fresh + walk-up ──────────────────────────────────────────────
+        // Nothing anywhere → fresh = pnpm-shaped.
         let d = root(&[("package.json", "{}")]);
-        assert!(nub_identity_dir(d.path()).is_none());
+        assert_eq!(resolve_config_surface(d.path()), ConfigSurface::PnpmOrFresh);
+        // Walks up from a member dir to the deciding root (nub identity).
         let d = root(&[
             ("package.json", r#"{"packageManager":"nub@0.1.0"}"#),
             ("lock.yaml", "lockfileVersion: '9.0'\n"),
         ]);
         let member = d.path().join("packages/a");
         std::fs::create_dir_all(&member).unwrap();
-        assert_eq!(nub_identity_dir(&member).as_deref(), Some(d.path()));
-    }
-
-    #[test]
-    fn non_pnpm_role_gates_the_pnpm_surface_for_npm_yarn_bun_only() {
-        let root = |files: &[(&str, &str)]| {
-            let dir = tempfile::tempdir().unwrap();
-            for (name, body) in files {
-                std::fs::write(dir.path().join(name), body).unwrap();
-            }
-            dir
-        };
-
-        // Declaration decides by name. npm/yarn/bun → pnpm surface OFF.
-        for pm in ["npm@10.0.0", "yarn@4.0.0", "bun@1.1.0"] {
-            let d = root(&[("package.json", &format!(r#"{{"packageManager":"{pm}"}}"#))]);
-            assert!(non_pnpm_role(d.path()), "{pm} is a non-pnpm role");
-        }
-        // pnpm keeps the full compat surface; an unknown tool stays
-        // conservative (full surface), never gated off by mistake.
-        for pm in ["pnpm@9.0.0", "vlt@1.0.0"] {
-            let d = root(&[("package.json", &format!(r#"{{"packageManager":"{pm}"}}"#))]);
-            assert!(!non_pnpm_role(d.path()), "{pm} keeps the pnpm surface");
-        }
-
-        // Undeclared: a lone foreign npm/yarn/bun lockfile gates the surface.
-        let d = root(&[("package.json", "{}"), ("yarn.lock", "# yarn\n")]);
-        assert!(non_pnpm_role(d.path()));
-        // A pnpm-lock.yaml keeps the pnpm surface — even beside a foreign one
-        // (the ambiguity the engine errors on loudly right after).
-        let d = root(&[
-            ("package.json", "{}"),
-            ("pnpm-lock.yaml", "lockfileVersion: '9.0'\n"),
-            ("yarn.lock", "# yarn\n"),
-        ]);
-        assert!(!non_pnpm_role(d.path()));
-
-        // Fresh = pnpm-shaped (Axiom 4); the probe also walks up from a member.
-        let d = root(&[("package.json", "{}")]);
-        assert!(!non_pnpm_role(d.path()));
+        assert_eq!(
+            resolve_config_surface(&member),
+            ConfigSurface::NubIdentity(d.path().to_path_buf())
+        );
+        // Walks up to a non-pnpm compat root too.
         let d = root(&[
             ("package.json", r#"{"packageManager":"yarn@4.0.0"}"#),
             ("yarn.lock", "# yarn\n"),
         ]);
         let member = d.path().join("packages/a");
         std::fs::create_dir_all(&member).unwrap();
-        assert!(non_pnpm_role(&member));
+        assert_eq!(
+            resolve_config_surface(&member),
+            ConfigSurface::NonPnpmCompat("yarn")
+        );
     }
 
     #[test]
