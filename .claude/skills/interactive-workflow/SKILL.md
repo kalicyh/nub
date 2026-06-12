@@ -54,9 +54,11 @@ A dispatch's model AND its scope/structure must match what the task actually dem
 
 Every wrong or low-quality sub-agent result is a signal that the dispatch was mis-tiered, under-scoped, or under-specified — not a one-off to fix and forget. When it happens, UPDATE this skill (and the repo's tiering guidance): record the failure mode and the calibration so it doesn't recur. A confidently-wrong verdict from a cheap tier means *route that class up a tier* and/or tighten the prompt. A "done" that was actually thin means *the scope didn't match the spirit* — re-open it and fan out. The methodology compounds by absorbing each miss.
 
-## Label every dispatch for the human
+## Label every dispatch for the human — and NEVER refer to it by a code in chat
 
-When you launch or refer to a sub-agent, lead with a **sentence-case description of what it's doing**, with the tracker ID in parentheses at the end — e.g. "Differential-test the resolver against pnpm (AC1)". Do NOT surface the agent *type* ("general-purpose") or the opaque runtime task ID as the identifier — those mean nothing to the human. The dispatch's `description`/label and every chat reference to it follow this shape.
+When you launch or refer to a sub-agent, lead with a **sentence-case description of what it's doing** — e.g. "Differential-test the resolver against pnpm". Do NOT surface the agent *type* ("general-purpose") or the opaque runtime task ID as the identifier — those mean nothing to the human.
+
+**The internal tracker code (N3, CP-6, AC1, M11…) is bookkeeping for YOUR control surface — it is meaningless to the human and must NEVER be the identifier in a chat message or status update.** The human experiences the work as "the thing that does X," not "N3." Always name the agent/effort by what it is *doing* in plain words ("the investigation into store verification", "the npm-lockfile-reader fix"); keep the code in the tracker/ledger, or at most in parentheses at the very end as a cross-reference. Leaking codes into status reports makes them unreadable — a repeated, called-out mistake (the maintainer, 2026-06-11). See the user memory `refer-to-efforts-by-description`.
 
 ## Always background sub-agents
 
