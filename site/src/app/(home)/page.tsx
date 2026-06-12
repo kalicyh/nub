@@ -938,24 +938,21 @@ const RULES = [
    Notes encode the version gates the code enforces. */
 const PM_COLUMNS = ['npm', 'pnpm', 'yarn', 'bun', 'nub'] as const;
 type Cell = 'yes' | 'no' | 'na';
-const PM_MATRIX: { field: ReactNode; note?: string; cells: Record<(typeof PM_COLUMNS)[number], Cell> }[] = [
+const PM_MATRIX: { field: ReactNode; cells: Record<(typeof PM_COLUMNS)[number], Cell> }[] = [
   {
     field: <><Mono>workspaces</Mono></>,
     cells: { npm: 'yes', pnpm: 'yes', yarn: 'yes', bun: 'yes', nub: 'yes' },
   },
   {
     field: <>top-level <Mono>overrides</Mono></>,
-    note: 'npm ≥ 8.3',
     cells: { npm: 'yes', pnpm: 'no', yarn: 'no', bun: 'yes', nub: 'yes' },
   },
   {
     field: <><Mono>resolutions</Mono></>,
-    note: 'pnpm ≥ 5',
     cells: { npm: 'no', pnpm: 'yes', yarn: 'yes', bun: 'yes', nub: 'yes' },
   },
   {
     field: <><Mono>catalog:</Mono></>,
-    note: 'pnpm ≥ 9, bun ≥ 1.2',
     cells: { npm: 'no', pnpm: 'yes', yarn: 'no', bun: 'yes', nub: 'yes' },
   },
   {
@@ -964,7 +961,6 @@ const PM_MATRIX: { field: ReactNode; note?: string; cells: Record<(typeof PM_COL
   },
   {
     field: <>PM-specific config</>,
-    note: 'pnpm.* + pnpm-workspace.yaml / bun trustedDependencies',
     cells: { npm: 'na', pnpm: 'yes', yarn: 'na', bun: 'yes', nub: 'no' },
   },
 ];
@@ -997,14 +993,9 @@ function PMMatrix() {
         <tbody>
           {PM_MATRIX.map((row, i) => (
             <tr key={i} className="border-b border-fd-border/40 last:border-0">
-              <td className="px-4 py-3">
-                <span className="text-fd-foreground">{row.field}</span>
-                {row.note ? (
-                  <span className="ml-2 text-[0.7rem] text-fd-muted-foreground/70">{row.note}</span>
-                ) : null}
-              </td>
+              <td className="px-4 py-3 text-fd-foreground">{row.field}</td>
               {PM_COLUMNS.map((pm) => (
-                <td key={pm} className="px-4 py-3 text-center text-base">
+                <td key={pm} className="px-4 py-3 text-center">
                   {glyph(row.cells[pm])}
                 </td>
               ))}
@@ -1119,26 +1110,33 @@ function HypermanagerBand() {
 
           <Feature
             accent="pink"
-            reverse
-            eyebrow="Eject"
-            title="nub pm shim — fall back to the real tool"
-            body={
+            eyebrow="Shim"
+            title={
               <>
-                Want the original CLI in your <Mono>PATH</Mono>? <Mono>nub pm shim</Mono>{' '}drops{' '}
-                <Mono>npm</Mono>, <Mono>pnpm</Mono>, <Mono>yarn</Mono>, and <Mono>bun</Mono>{' '}shims
-                under <Mono>~/.nub/shims</Mono>{' '}that route each invocation to the version the
-                project pins — the version-manager job, without the global install. And{' '}
-                <Mono>nub pm use pnpm@^9</Mono>{' '}declares and provisions that exact version for the
-                whole team.
+                {/* TODO(bench): drop the verified multiplier in here once shim-vs-Corepack
+                    dispatch overhead is measured — e.g. "A faster" → "A 4× faster".
+                    Do NOT write a number until it is measured. */}
+                A faster Corepack
               </>
             }
+            body={
+              <>
+                <Mono>nub pm shim</Mono>{' '}is a package-manager shim — the same idea as{' '}
+                <Mono>corepack</Mono>, but faster. It drops <Mono>npm</Mono>, <Mono>pnpm</Mono>,{' '}
+                <Mono>yarn</Mono>, and <Mono>bun</Mono>{' '}shims under <Mono>~/.nub/shims</Mono>{' '}
+                that route each invocation to the version the project pins. The version-manager
+                job, without the global install. <Mono>nub pm use pnpm@^9</Mono>{' '}declares and
+                provisions that exact version for the whole team.
+              </>
+            }
+            reverse
             visual={
               <Terminal
                 lines={[
                   { cmd: 'nub pm shim' },
                   { out: '7 entries in ~/.nub/shims (7 created)' },
                   { out: 'PATH: added ~/.nub/shims to ~/.zshrc' },
-                  { cmd: 'pnpm install', comment: 'now routed to the project’s pinned pnpm' },
+                  { cmd: 'pnpm install', comment: "now routed to the project's pinned pnpm" },
                 ]}
               />
             }
