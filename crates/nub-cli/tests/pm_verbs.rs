@@ -544,6 +544,81 @@ fn excluded_verbs_answer_honestly_not_with_stub_text() {
     }
 }
 
+/// The PM-suggestion surfaces agree on identity. A fresh / nub-identity
+/// project (no lockfile, no foreign pin) gets a `nub`-flavored hint from each
+/// redirect; a project with a committed foreign lockfile gets that PM. The
+/// blind-`npm` fallback the migrate redirect and engine-verb dispatch used to
+/// carry is gone — both now route through the same nub-identity-aware
+/// `suggest_package_manager` logic the `nubx`-miss hint already used.
+#[test]
+fn redirect_surfaces_agree_on_pm_identity() {
+    // ── Fresh / nub-identity: every surface speaks nub ──
+    let nub_dir = pm_tmpdir("suggest-nub");
+    std::fs::write(nub_dir.join("package.json"), r#"{"name":"fresh"}"#).unwrap();
+
+    // Surface 1 — the `migrate` PM-verb redirect. nub has no `migrate` verb;
+    // it spells the lockfile migration `import`, so the nub-identity redirect
+    // must name a *real* command (`nub import`), never a phantom `nub migrate`.
+    let migrate = run_nub(&nub_dir, &["migrate", "yarn.lock"]);
+    assert_ne!(migrate.code, 0, "migrate is not a nub command");
+    migrate.assert_brand_clean();
+    assert!(
+        migrate.stderr.contains("nub import yarn.lock"),
+        "migrate redirect must suggest the real `nub import`, not npm: {}",
+        migrate.stderr
+    );
+    assert!(
+        !migrate.stderr.contains("npm migrate") && !migrate.stderr.contains("nub migrate"),
+        "no blind-npm fallback and no phantom `nub migrate`: {}",
+        migrate.stderr
+    );
+
+    // Surface 3 — the `nubx`-miss hint (exec of an uninstalled bin).
+    let exec = run_nub(&nub_dir, &["exec", "definitely-not-installed-xyz"]);
+    assert_eq!(exec.code, 127, "missing bin exits 127");
+    exec.assert_brand_clean();
+    assert!(
+        exec.stderr.contains("nub add -D") && exec.stderr.contains("nubx "),
+        "nubx hint must speak nub in a fresh project: {}",
+        exec.stderr
+    );
+    assert!(
+        !exec.stderr.contains("npm install"),
+        "no blind-npm fallback in the nubx hint: {}",
+        exec.stderr
+    );
+
+    // ── pnpm-pinned: every surface speaks pnpm ──
+    let pnpm_dir = pm_tmpdir("suggest-pnpm");
+    std::fs::write(pnpm_dir.join("package.json"), r#"{"name":"p"}"#).unwrap();
+    std::fs::write(pnpm_dir.join("pnpm-lock.yaml"), "lockfileVersion: '9.0'\n").unwrap();
+
+    let migrate_pnpm = run_nub(&pnpm_dir, &["migrate", "yarn.lock"]);
+    assert_ne!(migrate_pnpm.code, 0);
+    assert!(
+        migrate_pnpm.stderr.contains("pnpm migrate yarn.lock"),
+        "a pnpm project keeps its own PM in the migrate redirect: {}",
+        migrate_pnpm.stderr
+    );
+
+    let exec_pnpm = run_nub(&pnpm_dir, &["exec", "definitely-not-installed-xyz"]);
+    assert_eq!(exec_pnpm.code, 127);
+    assert!(
+        exec_pnpm.stderr.contains("pnpm add -D") && exec_pnpm.stderr.contains("pnpm dlx"),
+        "a pnpm project keeps its own PM in the nubx hint: {}",
+        exec_pnpm.stderr
+    );
+}
+
+// Surface 2 — the engine-verb dispatch's PM hint (`dispatch_subcommand` →
+// `dispatch_verb`) — now routes through the same `suggest_package_manager`
+// source function as surfaces 1 and 3, so the nub-vs-foreign behavior verified
+// in `redirect_surfaces_agree_on_pm_identity` carries to it identically. The
+// hint is consumed only by the unwired-verb stub fallback (`{pm} {verb}`),
+// which is unreachable through the binary today (every registered verb is
+// wired or explicitly excluded), so there is no spawned-binary path to assert
+// against — a ceremonial test of an unreachable arm would be sloppification.
+
 /// `nub create <template>` maps to the create-* package and runs the real
 /// scaffolder end-to-end (create-vite, zero-dep, non-interactive with an
 /// explicit template).

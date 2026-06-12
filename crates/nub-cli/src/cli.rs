@@ -1010,10 +1010,38 @@ fn run_nub() -> Result<i32> {
             }
             // PM-management verbs are not nub commands: the A2 pure-passthrough
             // frontend is disabled pending the normalized standard surface (see
-            // PM_VERBS). Redirect with the exact command to paste — the lockfile
-            // names the project's real PM.
+            // PM_VERBS). Redirect with the exact command to paste, nub-identity-
+            // aware: a foreign-PM project gets that PM's verb; a fresh / nub-
+            // identity project gets nub's own equivalent. The only PM_VERB is
+            // `migrate` (yarn/bun lockfile migration), which nub spells `import`
+            // — so the nub-identity redirect names `nub import`, never a
+            // nonexistent `nub migrate`. If a future PM_VERB has no nub
+            // equivalent, add it here rather than emitting `nub <verb>`.
             if PM_VERBS.contains(&first.as_str()) {
-                let pm = detect_package_manager(&env::current_dir()?);
+                let pm = suggest_package_manager(&env::current_dir()?);
+                if pm == "nub" {
+                    let nub_verb = match first.as_str() {
+                        "migrate" => "import",
+                        // No nub equivalent: fall back to the lockfile-detected
+                        // foreign PM rather than suggesting a command nub lacks.
+                        other => {
+                            let foreign = detect_package_manager(&env::current_dir()?);
+                            bail!(
+                                "nub: \"{other}\" is not a nub command — run it with your \
+                                 package manager:\n\x20\x20{foreign} {}",
+                                rest.join(" ")
+                            );
+                        }
+                    };
+                    let nub_args: Vec<&str> = std::iter::once(nub_verb)
+                        .chain(rest.iter().skip(1).map(String::as_str))
+                        .collect();
+                    bail!(
+                        "nub: \"{first}\" is not a nub command — nub spells it `{nub_verb}`:\n\
+                         \x20\x20nub {}",
+                        nub_args.join(" ")
+                    );
+                }
                 bail!(
                     "nub: \"{first}\" is not a nub command — run it with your package manager:\n\
                      \x20\x20{pm} {}",
@@ -1177,7 +1205,12 @@ fn dispatch_subcommand(rest: Vec<String>) -> Result<i32> {
     // real-PM fallback). `install`/`i`/`ci` are NOT in the registry — they
     // are live clap verbs handled below.
     if let Some(spec) = crate::pm_engine::lookup_verb(&subcommand) {
-        let pm = detect_package_manager(&env::current_dir()?);
+        // The PM hint is only consumed by the unwired-verb stub fallback
+        // (`{pm} {verb}`); use the nub-identity-aware suggestion so a fresh /
+        // nub-identity project gets a `nub`-flavored hint (the verb *is* a
+        // future nub verb) while a foreign-PM project keeps its own PM. Wired
+        // verbs ignore the hint entirely (they re-resolve identity per call).
+        let pm = suggest_package_manager(&env::current_dir()?);
         return crate::pm_engine::dispatch_verb(spec, &subcommand, &rest[1..], &pm);
     }
 
