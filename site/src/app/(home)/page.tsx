@@ -1027,7 +1027,7 @@ function HypermanagerBand() {
               Nub installs your dependencies itself — no <Mono>npm</Mono>, <Mono>pnpm</Mono>,{' '}
               <Mono>yarn</Mono>, or <Mono>bun</Mono>{' '}in the loop. It reads the lockfile your
               project already has and writes the same format back. Powered by the embedded{' '}
-              <Mono>aube</Mono>{' '}engine, a fork of jdx&rsquo;s.
+              <Mono>aube</Mono>{' '}engine. Powered by jdx&rsquo;s aube.
             </>
           }
           accent="pink"
@@ -1037,7 +1037,7 @@ function HypermanagerBand() {
           <Feature
             accent="pink"
             eyebrow="Meta package manager"
-            title="Sits on top of the PM you already use"
+            title="Change package managers, keep your lockfile."
             body={
               <>
                 Point <Mono>nub install</Mono>{' '}at any project and it just runs — it detects the
