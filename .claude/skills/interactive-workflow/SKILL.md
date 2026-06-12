@@ -145,6 +145,16 @@ NEVER stop a sub-agent while it may be mid-file-edit. Killing an agent mid-edit 
 
 ---
 
+## Every change inside a vendored fork must be flagged or justified as a latent-bug fix
+
+When the work touches a vendored upstream (here: the `vendor/aube` submodule, which upstreams to `jdx/aube` as one eventual mega-PR), an ABSOLUTE rule governs every behavioral change: it must be a **default-preserving toggle** — the default path reproduces upstream behavior byte-for-byte, and the embedder (nub) opts into the new behavior by flipping a flag (the `set_*` / OnceLock embedder-seam pattern, with a `default == upstream` invariant tested per seam). The ONLY exception is a **latent-bug fix upstream would accept unconditionally** — completing something incomplete/wrong that changes no *intended* upstream behavior (and that classification must be justified, not assumed).
+
+Operationalize it on EVERY fork-touching dispatch:
+
+- **The dispatch prompt must state the rule** and require the agent to classify its change: *behavior change → default-preserving flag* vs *latent-bug fix upstream wants unconditionally → justify why*. Never let a fork agent silently land an unflagged behavior/default/posture/output change — instruct it to STOP and report if the change isn't a clean latent-bug fix.
+- **The orchestrator reviews EVERY fork diff for flag-compliance before treating it as landed.** A self-testing fork agent auto-commits to the fork branch + bumps the pin, so the change lands before you see it — its ledger entry is NOT "folded" until you've read the diff and confirmed it's either flagged (default==upstream) or a justified latent-bug fix. If it's an unflagged behavior change, reshape it behind a flag before it stays.
+- This is a load-bearing, never-forget rule (the maintainer, 2026-06-11): the whole fork must stay upstreamable as one PR, so a single unflagged behavior change is debt against that. See AGENTS.md ("every vendor/aube change must be conceivably upstreamable").
+
 ## Get sign-off before launching an OPINIONATED sub-agent
 
 Classify every dispatch before you launch it:
