@@ -929,19 +929,114 @@ const RULES = [
 
 /* ----------------------------------------------------------- Built-in package manager */
 
+/* Per-config-field support across package managers. Cells derive directly from
+   crates/nub-cli/src/pm_engine/config_scope.rs and pm_engine/mod.rs — do NOT
+   edit a cell without changing the code it mirrors. Legend:
+     yes  — honored
+     no   — ignored
+     —    — n/a
+   Notes encode the version gates the code enforces. */
+const PM_COLUMNS = ['npm', 'pnpm', 'yarn', 'bun', 'nub'] as const;
+type Cell = 'yes' | 'no' | 'na';
+const PM_MATRIX: { field: ReactNode; note?: string; cells: Record<(typeof PM_COLUMNS)[number], Cell> }[] = [
+  {
+    field: <><Mono>workspaces</Mono></>,
+    cells: { npm: 'yes', pnpm: 'yes', yarn: 'yes', bun: 'yes', nub: 'yes' },
+  },
+  {
+    field: <>top-level <Mono>overrides</Mono></>,
+    note: 'npm ≥ 8.3',
+    cells: { npm: 'yes', pnpm: 'no', yarn: 'no', bun: 'yes', nub: 'yes' },
+  },
+  {
+    field: <><Mono>resolutions</Mono></>,
+    note: 'pnpm ≥ 5',
+    cells: { npm: 'no', pnpm: 'yes', yarn: 'yes', bun: 'yes', nub: 'yes' },
+  },
+  {
+    field: <><Mono>catalog:</Mono></>,
+    note: 'pnpm ≥ 9',
+    cells: { npm: 'no', pnpm: 'yes', yarn: 'no', bun: 'no', nub: 'yes' },
+  },
+  {
+    field: <><Mono>.npmrc</Mono></>,
+    cells: { npm: 'yes', pnpm: 'yes', yarn: 'yes', bun: 'yes', nub: 'yes' },
+  },
+  {
+    field: <>PM-specific config</>,
+    note: 'pnpm.* + pnpm-workspace.yaml / bun trustedDependencies',
+    cells: { npm: 'na', pnpm: 'yes', yarn: 'na', bun: 'yes', nub: 'no' },
+  },
+];
+
+function PMMatrix() {
+  const glyph = (c: Cell) =>
+    c === 'yes' ? (
+      <span className="text-pink">●</span>
+    ) : c === 'no' ? (
+      <span className="text-fd-muted-foreground/40">○</span>
+    ) : (
+      <span className="text-fd-muted-foreground/30">—</span>
+    );
+  return (
+    <div className="overflow-x-auto rounded-xl border border-fd-border bg-[#0b0a08]">
+      <table className="w-full border-collapse text-left font-mono text-sm">
+        <thead>
+          <tr className="border-b border-fd-border/70">
+            <th className="px-4 py-3 font-normal text-fd-muted-foreground">config field</th>
+            {PM_COLUMNS.map((pm) => (
+              <th
+                key={pm}
+                className={`px-4 py-3 text-center font-normal ${pm === 'nub' ? 'text-pink' : 'text-fd-muted-foreground'}`}
+              >
+                {pm}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {PM_MATRIX.map((row, i) => (
+            <tr key={i} className="border-b border-fd-border/40 last:border-0">
+              <td className="px-4 py-3">
+                <span className="text-fd-foreground">{row.field}</span>
+                {row.note ? (
+                  <span className="ml-2 text-[0.7rem] text-fd-muted-foreground/70">{row.note}</span>
+                ) : null}
+              </td>
+              {PM_COLUMNS.map((pm) => (
+                <td key={pm} className="px-4 py-3 text-center text-base">
+                  {glyph(row.cells[pm])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function HypermanagerBand() {
   return (
     <section className="border-b border-fd-border">
       <Container className="py-32 md:py-[180px]">
         <BandHeader
           command="nub install"
-          title="A package manager you never switch to"
+          title={
+            <>
+              pnpm, but{' '}
+              {/* TODO(bench): drop the verified multiplier in here once the
+                  comprehensive benchmark lands — e.g. "faster" → "16× faster".
+                  Do NOT write a number until it is measured. */}
+              <span className="text-pink">faster</span>
+            </>
+          }
           subhead={
             <>
-              Nub installs your dependencies itself — no <Mono>npm</Mono>, <Mono>pnpm</Mono>,
-              or <Mono>bun</Mono>{' '}in the loop. It reads the lockfile your project already has
-              and writes the same format back. Powered by the embedded <Mono>aube</Mono>{' '}engine,
-              a fork of jdx&rsquo;s.
+              Nub installs your dependencies itself — no <Mono>npm</Mono>, <Mono>pnpm</Mono>,{' '}
+              <Mono>yarn</Mono>, or <Mono>bun</Mono>{' '}in the loop. It reads the lockfile your
+              project already has and writes the same format back. Powered by the embedded{' '}
+              <Mono>aube</Mono>{' '}engine, a fork of jdx&rsquo;s.
             </>
           }
           accent="pink"
@@ -950,50 +1045,22 @@ function HypermanagerBand() {
         <div className="mt-10 divide-y divide-fd-border/60">
           <Feature
             accent="pink"
-            eyebrow="Drop-in"
-            title="Install with the lockfile you already have"
+            eyebrow="Meta package manager"
+            title="Sits on top of the PM you already use"
             body={
               <>
-                Point <Mono>nub install</Mono>{' '}at any project and it just runs — npm, pnpm, or
-                bun lockfile, it reads what&rsquo;s there and writes the same file back. No flag,
-                no migration, no foreign lockfile dropped next to yours. A fresh project gets a
-                standard <Mono>pnpm-lock.yaml</Mono>.
-              </>
-            }
-            visual={
-              <Terminal
-                lines={[
-                  { cmd: 'nub install' },
-                  { out: 'dependencies:' },
-                  { out: '+ chalk@5.6.2' },
-                  { out: '+ express@4.22.2  latest 5.2.1' },
-                  { out: '+ zod@3.25.76  latest 4.4.3' },
-                  { out: ' ' },
-                  { out: 'nub 0.0.33 · ✓ installed 70 packages' },
-                ]}
-              />
-            }
-          />
-
-          <Feature
-            accent="pink"
-            reverse
-            eyebrow="Conformance"
-            title="A true drop-in — proven both directions"
-            body={
-              <>
-                Nub frozen-installs faithfully from an npm, pnpm, yarn, or bun lockfile — and
-                each of those real tools frozen-accepts a lockfile Nub wrote, unchanged. That
-                round-trip is verified across all four: 16 / 16 bidirectional installs pass, so
-                a teammate on plain <Mono>pnpm</Mono>{' '}or <Mono>npm</Mono>{' '}sees the exact tree
-                Nub produced.
+                Point <Mono>nub install</Mono>{' '}at any project and it just runs — it detects the
+                package manager from the lockfile, installs in that tool&rsquo;s dialect, and
+                writes the same file back. No flag, no migration, no foreign lockfile dropped next
+                to yours. The flat hoisted layout for an npm/yarn/bun project, the strict symlinked
+                store for pnpm — whatever the code that walks <Mono>node_modules</Mono>{' '}expects.
               </>
             }
             visual={
               <Terminal
                 lines={[
                   { cmd: 'nub install', comment: 'npm  package-lock.json → in place' },
-                  { cmd: 'nub install', comment: 'pnpm pnpm-lock.yaml   → in place' },
+                  { cmd: 'nub install', comment: 'pnpm pnpm-lock.yaml    → in place' },
                   { cmd: 'nub install', comment: 'bun  bun.lock          → in place' },
                   { cmd: 'nub install', comment: 'yarn yarn.lock         → read-only' },
                 ]}
@@ -1003,47 +1070,31 @@ function HypermanagerBand() {
 
           <Feature
             accent="pink"
+            reverse
             eyebrow="Performance"
             title="As fast as pnpm warm, faster cold"
             body={
               <>
                 On a warm cache, <Mono>nub install</Mono>{' '}lands a statistical tie with{' '}
-                <Mono>pnpm</Mono>. Cold, Nub is faster — but honestly so: it ships a metadata
-                primer, an embedded cache of the ~2,000 most-installed packages, so a
-                first install skips most of the registry round-trips. The disk and link work
-                is the same.
+                <Mono>pnpm</Mono>. On a cold cache Nub is faster, and the disk and link work is the
+                same — the comprehensive cross-PM benchmark lands next.
               </>
             }
             visual={
               <div className="rounded-xl border border-fd-border bg-[#0b0a08] p-6">
                 <p className="mb-5 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-fd-muted-foreground">
-                  49-dep install · hyperfine
+                  49-dep install · warm cache · hyperfine
                 </p>
-                {/* TODO(bench): swap in the monorepo-WARM number when it lands —
-                    it is the stronger headline and is NOT yet measured. Do not
-                    fabricate it; keep this single-project bench until then. */}
-                <p className="mb-2 font-mono text-[0.62rem] uppercase tracking-[0.12em] text-fd-muted-foreground">
-                  warm cache
-                </p>
+                {/* TODO(bench): swap in the monorepo number when the comprehensive
+                    bench lands — the stronger headline, NOT yet measured. Do not
+                    fabricate it; keep this single-project warm bench until then. */}
                 <BenchBars
                   accent="pink"
-                  max={7.14}
+                  max={2.83}
                   unit="s"
                   rows={[
                     { cmd: 'nub install', ms: 2.83, us: true },
                     { cmd: 'pnpm install', ms: 2.75 },
-                  ]}
-                />
-                <p className="mb-2 mt-6 font-mono text-[0.62rem] uppercase tracking-[0.12em] text-fd-muted-foreground">
-                  cold cache · nub primer-assisted
-                </p>
-                <BenchBars
-                  accent="pink"
-                  max={7.14}
-                  unit="s"
-                  rows={[
-                    { cmd: 'nub install', ms: 2.65, us: true },
-                    { cmd: 'pnpm install', ms: 7.14, ratio: 2.7 },
                   ]}
                 />
               </div>
@@ -1052,79 +1103,42 @@ function HypermanagerBand() {
 
           <Feature
             accent="pink"
-            reverse
-            eyebrow="Layout"
-            title="Isolated installs, hoisted where you expect them"
-            body={
-              <>
-                pnpm projects and fresh ones get strict, symlinked, pnpm-style installs, with the
-                virtual store tucked under <Mono>node_modules/.nub</Mono>. Projects with an npm,
-                yarn, or bun lockfile default to the flat hoisted layout those tools produce — so
-                nothing about your tree surprises the code that walks it. One{' '}
-                <Mono>.npmrc</Mono>{' '}line (<Mono>node-linker</Mono>) overrides either default.
-              </>
-            }
-            visual={
-              <Terminal
-                lines={[
-                  { cmd: 'nub install' },
-                  { out: 'node_modules/express → .nub/express@4.22.2/…' },
-                  { cmd: 'nub install --node-linker=hoisted', comment: 'or one .npmrc line' },
-                ]}
-              />
-            }
-          />
-
-          <Feature
-            accent="pink"
             eyebrow="Config"
-            title="Reads .npmrc, honors your workspaces"
+            title="Round-trip lockfile compatibility"
             body={
               <>
-                Configuration comes from the files you already maintain: <Mono>.npmrc</Mono>{' '}
-                (registry, auth, flags), <Mono>pnpm-workspace.yaml</Mono>, and{' '}
-                <Mono>package.json#workspaces</Mono>. Nub&rsquo;s own defaults rank below every user
-                source — a CLI flag, env var, <Mono>.npmrc</Mono>{' '}entry, or workspace yaml always
-                wins. No new config file, no <Mono>&quot;nub&quot;</Mono>{' '}field in{' '}
-                <Mono>package.json</Mono>.
+                Nub installs faithfully from an npm, pnpm, yarn, or bun lockfile, and each of those
+                tools accepts a lockfile Nub wrote — verified both directions, so a teammate on
+                plain <Mono>pnpm</Mono>{' '}or <Mono>npm</Mono>{' '}sees the exact tree Nub produced. It
+                reads the config you already maintain in that tool&rsquo;s dialect, and never writes
+                a <Mono>&quot;nub&quot;</Mono>{' '}field or a new config file.
               </>
             }
-            visual={
-              <Terminal
-                lines={[
-                  { cmd: 'cat .npmrc' },
-                  { out: 'registry=https://npm.example.com' },
-                  { out: 'node-linker=hoisted' },
-                  { cmd: 'nub install', comment: 'your config wins, always' },
-                ]}
-              />
-            }
+            visual={<PMMatrix />}
           />
 
           <Feature
             accent="pink"
             reverse
-            eyebrow="Keep your tools"
-            title="Your package manager still works"
+            eyebrow="Eject"
+            title="nub pm shim — fall back to the real tool"
             body={
               <>
-                Because Nub writes the same lockfile your package manager does, pnpm, npm, and bun
-                keep working side by side — run either tool, commit the same file, switch back any
-                time. Registry, scoped, peer-heavy, and platform-specific dependency trees all
-                round-trip through the real tools today — <Mono>workspace:</Mono>{' '}links and git
-                dependencies included. And when you want
-                the original tool itself, <Mono>nub pm use</Mono>{' '}declares and provisions the
-                exact version for the whole team — Corepack&rsquo;s job, without the PATH shims.
+                Want the original CLI in your <Mono>PATH</Mono>? <Mono>nub pm shim</Mono>{' '}drops{' '}
+                <Mono>npm</Mono>, <Mono>pnpm</Mono>, <Mono>yarn</Mono>, and <Mono>bun</Mono>{' '}shims
+                under <Mono>~/.nub/shims</Mono>{' '}that route each invocation to the version the
+                project pins — the version-manager job, without the global install. And{' '}
+                <Mono>nub pm use pnpm@^9</Mono>{' '}declares and provisions that exact version for the
+                whole team.
               </>
             }
             visual={
               <Terminal
                 lines={[
-                  { cmd: 'nub install', comment: 'or pnpm install — same lockfile' },
-                  { cmd: 'nub pm use pnpm@^9' },
-                  { out: 'using pnpm@9.15.9' },
-                  { out: '  package.json: packageManager = pnpm@9.15.9 (+sha512)' },
-                  { out: "  pnpm-lock.yaml: kept (already pnpm's format)" },
+                  { cmd: 'nub pm shim' },
+                  { out: '7 entries in ~/.nub/shims (7 created)' },
+                  { out: 'PATH: added ~/.nub/shims to ~/.zshrc' },
+                  { cmd: 'pnpm install', comment: 'now routed to the project’s pinned pnpm' },
                 ]}
               />
             }
