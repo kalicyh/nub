@@ -316,9 +316,9 @@ The watch set is the resolved dependency graph of your entry file, plus the file
 
 The engine underneath is Node's own `--watch`. Nub's preload reports every file the load hook touches — including `.ts` files transpiled in memory, which Node never sees on disk — to Node's watcher over its dependency-report IPC channel. That report is what makes `--watch` work for TypeScript at all.
 
-## `nub run` — an 18× faster `pnpm run`
+## `nub run` — a 20× faster `pnpm run`
 
-A drop-in replacement for `npm run` and `pnpm run`, minus the ~150 ms Node bootstrap they pay on every invocation:
+A drop-in replacement for `npm run` and `pnpm run`, minus the ~300–350 ms Node bootstrap they pay on every invocation:
 
 ```sh
 $ nub run dev           # any package.json script
@@ -328,18 +328,18 @@ $ nub -r run build      # every workspace package, topo-ordered
 
 ### Performance
 
-`pnpm` and `npm` are themselves Node.js programs: every `pnpm run <script>` boots a Node process, loads the package manager, parses its config, walks the workspace, and finally shells out to your script. That's ~150–200 ms of overhead before your script's first byte runs — and in a 30-package monorepo, `pnpm -r run build` pays it 30 times.
+`pnpm` and `npm` are themselves Node.js programs: every `pnpm run <script>` boots a Node process, loads the package manager, parses its config, walks the workspace, and finally shells out to your script. That's ~300–350 ms of overhead before your script's first byte runs — and in a 30-package monorepo, `pnpm -r run build` pays it 30 times.
 
-**Script-runner overhead** — a no-op script, so the figure is pure wrapper cost:
+**Script-runner overhead** — a trivial `echo hi` script, so the figure is pure wrapper cost:
 
 <Bench
-  label="noop script · hyperfine, 20 runs"
+  label="run a package.json script · hyperfine, 100 runs"
   accent="acid"
-  max={161}
+  max={365}
   rows={[
-    { cmd: 'nub run noop', ms: 9, us: true },
-    { cmd: 'npm run noop', ms: 104, ratio: 11 },
-    { cmd: 'pnpm run noop', ms: 161, ratio: 18 },
+    { cmd: 'nub run echo', ms: 13, us: true },
+    { cmd: 'npm run echo', ms: 300, ratio: 23 },
+    { cmd: 'pnpm run echo', ms: 350, ratio: 27 },
   ]}
 />
 
@@ -356,7 +356,7 @@ $ nub -r run build      # every workspace package, topo-ordered
   ]}
 />
 
-The benchmarked command is identical on every row — the delta is pure wrapper overhead. Methodology: `hyperfine --warmup 3 --runs 20`, Apple M1 Max, Node 24.14.0 — the numbers are machine-specific, the ratios are the portable claim. Reproduce with [`benchmarks/`](https://github.com/nubjs/nub/tree/main/benchmarks).
+The benchmarked command is identical on every row — the delta is pure wrapper overhead. Methodology: `hyperfine --warmup 3 --runs 100`, Apple M1 Max, Node 24.14.0 — the numbers are machine-specific, the ratios are the portable claim. Reproduce with [`benchmarks/`](https://github.com/nubjs/nub/tree/main/benchmarks).
 
 ### Workspace-aware
 

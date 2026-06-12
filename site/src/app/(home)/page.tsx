@@ -675,7 +675,7 @@ function RunScriptBand() {
       <Container className="py-32 md:py-[180px]">
         <BandHeader
           command="nub run"
-          title={<>An 18× faster <HeadingCode>pnpm run</HeadingCode></>}
+          title={<>A 20× faster <HeadingCode>pnpm run</HeadingCode></>}
           subhead={
             <>
               A drop-in for <Mono>npm run</Mono>{' '}and <Mono>pnpm run</Mono>{' '}with lifecycle
@@ -702,15 +702,15 @@ function RunScriptBand() {
             visual={
               <div className="rounded-xl border border-fd-border bg-[#0b0a08] p-6">
                 <p className="mb-5 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-fd-muted-foreground">
-                  echo-hi script · hyperfine, 20 runs
+                  run a package.json script · hyperfine, 100 runs
                 </p>
                 <BenchBars
                   accent="acid"
-                  max={161}
+                  max={365}
                   rows={[
-                    { cmd: 'nub run echo-hi', ms: 9, us: true },
-                    { cmd: 'npm run echo-hi', ms: 104, ratio: 11 },
-                    { cmd: 'pnpm run echo-hi', ms: 161, ratio: 18 },
+                    { cmd: 'nub run', ms: 13, us: true },
+                    { cmd: 'npm run', ms: 300 },
+                    { cmd: 'pnpm run', ms: 350, ratio: 27 },
                   ]}
                 />
                 <a
@@ -1150,7 +1150,7 @@ catalog:
           <Feature
             accent="pink"
             eyebrow="Shim"
-            title={<>A 7× faster Corepack</>}
+            title={<>A 28× faster Corepack</>}
             body={
               <>
                 <Mono>nub pm shim</Mono>{' '}is a package-manager shim — the same idea as{' '}
@@ -1166,15 +1166,15 @@ catalog:
             visual={
               <div className="rounded-xl border border-fd-border bg-[#0b0a08] p-6">
                 <p className="mb-5 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-fd-muted-foreground">
-                  run a package.json script · hyperfine, 20 runs
+                  run a package.json script · hyperfine, 100 runs
                 </p>
                 <BenchBars
                   accent="pink"
-                  max={432}
+                  max={365}
                   rows={[
-                    { cmd: 'nub run', ms: 60, us: true },
-                    { cmd: 'pnpm run', ms: 423, ratio: 7 },
-                    { cmd: 'corepack pnpm run', ms: 432, ratio: 7 },
+                    { cmd: 'nub run', ms: 13, us: true },
+                    { cmd: 'pnpm run', ms: 350, ratio: 27 },
+                    { cmd: 'corepack pnpm run', ms: 365, ratio: 28 },
                   ]}
                 />
                 <a
