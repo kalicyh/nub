@@ -3,7 +3,7 @@ import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 /* The wordmark — stylized with a trailing period as a logo. */
 export function Wordmark() {
   return (
-    <span className="relative -top-0.5 font-display text-lg font-medium tracking-tight text-fd-foreground">
+    <span className="font-display text-lg font-medium tracking-tight text-fd-foreground">
       nub<span className="text-ember">.</span>
     </span>
   );
