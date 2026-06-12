@@ -955,8 +955,8 @@ const PM_MATRIX: { field: ReactNode; note?: string; cells: Record<(typeof PM_COL
   },
   {
     field: <><Mono>catalog:</Mono></>,
-    note: 'pnpm ≥ 9',
-    cells: { npm: 'no', pnpm: 'yes', yarn: 'no', bun: 'no', nub: 'yes' },
+    note: 'pnpm ≥ 9, bun ≥ 1.2',
+    cells: { npm: 'no', pnpm: 'yes', yarn: 'no', bun: 'yes', nub: 'yes' },
   },
   {
     field: <><Mono>.npmrc</Mono></>,
