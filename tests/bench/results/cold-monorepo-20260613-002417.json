@@ -1,0 +1,1 @@
+{"scenario":"cold","fixture":"monorepo","runs":5,"pnpm":{"times_ms":[3247,3318,2985,3061,3203],"mean_ms":3162,"stddev_ms":122},"nub":{"times_ms":[2540,4169,3777,2965,3110],"mean_ms":3312,"stddev_ms":584},"bun":{"times_ms":[1246,2220,1174,1518,1331],"mean_ms":1497,"stddev_ms":378}}
