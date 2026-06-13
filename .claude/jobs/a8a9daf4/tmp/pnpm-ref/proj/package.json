@@ -1,0 +1,9 @@
+{
+  "name": "sandbox-proj",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "chokidar": "3.6.0",
+    "react-dom": "18.3.1"
+  }
+}

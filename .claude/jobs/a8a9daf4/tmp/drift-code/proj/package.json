@@ -1,0 +1,7 @@
+{
+  "name": "drift-code",
+  "version": "1.0.0",
+  "dependencies": {
+    "chokidar": "^3.6.0"
+  }
+}
