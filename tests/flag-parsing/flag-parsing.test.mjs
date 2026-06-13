@@ -18,7 +18,7 @@
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, execFileSync as _e } from 'node:child_process'
-import { mkdtempSync, symlinkSync, existsSync } from 'node:fs'
+import { mkdtempSync, symlinkSync, copyFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,7 +27,10 @@ const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 // Locate a built nub binary; if absent, the parity leg is skipped (not failed).
-const NUB = ['target/release/nub', 'target/debug/nub']
+// `.exe` on Windows (the binary is `nub.exe` there) — without it the lookup
+// missed the binary and the whole parity leg silently skipped on Windows.
+const EXE = process.platform === 'win32' ? '.exe' : ''
+const NUB = [`target/release/nub${EXE}`, `target/debug/nub${EXE}`]
   .map((p) => join(REPO, p))
   .find((p) => existsSync(p))
 
@@ -47,13 +50,21 @@ function run(bin, argv, stdin) {
   }
 }
 
+// The shim entry is named `node` on Unix, `node.exe` on Windows — so that
+// invoking it through the dir reproduces the PATH hijack `node` would take.
+const shimName = process.platform === 'win32' ? 'node.exe' : 'node'
+
 const node = (argv, stdin) => run(process.execPath, argv, stdin)
-const nubAsNode = (argv, stdin) => run(join(nodeShim, 'node'), argv, stdin)
+const nubAsNode = (argv, stdin) => run(join(nodeShim, shimName), argv, stdin)
 
 before(() => {
   if (!NUB) return
   nodeShim = mkdtempSync(join(tmpdir(), 'nub-flagtest-'))
-  symlinkSync(NUB, join(nodeShim, 'node'))
+  const shim = join(nodeShim, shimName)
+  // Symlink on Unix; copy on Windows (file symlinks there need Developer Mode /
+  // elevation, exactly why the real PM shim hard-links/copies a `.exe`).
+  if (process.platform === 'win32') copyFileSync(NUB, shim)
+  else symlinkSync(NUB, shim)
 })
 
 // Each case: a name stating the contract, the argv, optional stdin, and an
