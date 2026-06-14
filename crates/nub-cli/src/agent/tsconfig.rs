@@ -109,9 +109,8 @@ fn plan_from_value(mut value: Value, had_comments: bool) -> Result<MergePlan> {
     }
 
     let changed = !added_types.is_empty() || !added_lib.is_empty() || dropped_dom;
-    let new_text = serde_json::to_string_pretty(&value)
-        .context("re-serializing tsconfig failed")?
-        + "\n";
+    let new_text =
+        serde_json::to_string_pretty(&value).context("re-serializing tsconfig failed")? + "\n";
 
     Ok(MergePlan {
         new_text,
@@ -219,8 +218,7 @@ mod tests {
 
     #[test]
     fn idempotent_when_already_wired() {
-        let src =
-            r#"{"compilerOptions":{"types":["node","@nubjs/types"],"lib":["es2024"]}}"#;
+        let src = r#"{"compilerOptions":{"types":["node","@nubjs/types"],"lib":["es2024"]}}"#;
         let plan = plan(src).unwrap();
         assert!(!plan.changed, "a fully-wired tsconfig is a no-op");
         assert!(plan.added_types.is_empty());
@@ -233,7 +231,10 @@ mod tests {
         let plan = plan(src).unwrap();
         let v: Value = serde_json::from_str(&plan.new_text).unwrap();
         assert_eq!(v["compilerOptions"]["strict"], Value::Bool(true));
-        assert_eq!(v["compilerOptions"]["target"], Value::String("es2022".into()));
+        assert_eq!(
+            v["compilerOptions"]["target"],
+            Value::String("es2022".into())
+        );
         assert_eq!(v["include"], serde_json::json!(["src"]));
     }
 

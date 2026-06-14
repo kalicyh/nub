@@ -194,10 +194,7 @@ mod tests {
         let (_, body) = skill();
         // Brand boundary: the skill is nub's own artifact (branding is fine), but
         // it must NOT teach a prohibited PUBLIC surface.
-        assert!(
-            !body.contains("globalThis.nub"),
-            "no public globalThis.nub"
-        );
+        assert!(!body.contains("globalThis.nub"), "no public globalThis.nub");
         assert!(!body.contains("nub:"), "no nub:* import namespace");
         assert!(!body.contains("@nub/"), "no @nub/* scope");
     }

@@ -33,8 +33,7 @@ pub struct MergePlan {
 
 /// Compute the devDep merge for an existing `package.json` text. Pure — no IO.
 pub fn plan(text: &str) -> Result<MergePlan> {
-    let mut value: Value =
-        serde_json::from_str(text).context("package.json is not valid JSON")?;
+    let mut value: Value = serde_json::from_str(text).context("package.json is not valid JSON")?;
 
     let root = value
         .as_object_mut()
@@ -50,10 +49,7 @@ pub fn plan(text: &str) -> Result<MergePlan> {
         .context("devDependencies must be an object")?;
 
     let want_version = TYPES_VERSION;
-    let already_correct = dev_deps
-        .get(TYPES_PACKAGE)
-        .and_then(Value::as_str)
-        == Some(want_version);
+    let already_correct = dev_deps.get(TYPES_PACKAGE).and_then(Value::as_str) == Some(want_version);
 
     if already_correct {
         // Re-serialize anyway so `new_text` is always a valid JSON string,
@@ -73,8 +69,7 @@ pub fn plan(text: &str) -> Result<MergePlan> {
     );
 
     let new_text =
-        serde_json::to_string_pretty(&value).context("re-serializing package.json failed")?
-            + "\n";
+        serde_json::to_string_pretty(&value).context("re-serializing package.json failed")? + "\n";
 
     Ok(MergePlan {
         new_text,
@@ -88,9 +83,7 @@ mod tests {
 
     fn dev_dep_version(text: &str, pkg: &str) -> Option<String> {
         let v: Value = serde_json::from_str(text).unwrap();
-        v["devDependencies"][pkg]
-            .as_str()
-            .map(str::to_string)
+        v["devDependencies"][pkg].as_str().map(str::to_string)
     }
 
     fn has_runtime_dep(text: &str, pkg: &str) -> bool {

@@ -168,7 +168,11 @@ fn write_primary_artifacts(
             Agent::Cursor => artifacts::cursor_rule(),
             Agent::Codex => unreachable!("Codex filtered out above"),
         };
-        let noun = if agent.is_skill_based() { "skill" } else { "rule" };
+        let noun = if agent.is_skill_based() {
+            "skill"
+        } else {
+            "rule"
+        };
         let q = format!("Create the nub {noun} for {} ({rel})?", agent.label());
         if confirm.ask(&q, true) {
             write_file(cwd, rel, &body)?;
@@ -224,7 +228,11 @@ fn maybe_wire_types(
         let mut q = format!(
             "Wire nub's types into tsconfig.json (types += {}, lib += es2024{})?",
             tsconfig::TYPES_PACKAGE,
-            if ts_plan.dropped_dom { ", drop dom" } else { "" }
+            if ts_plan.dropped_dom {
+                ", drop dom"
+            } else {
+                ""
+            }
         );
         if ts_plan.had_comments {
             q.push_str(" [note: comments in tsconfig.json will be removed]");
@@ -325,7 +333,10 @@ mod tests {
 
     #[test]
     fn parse_flags_no_is_defaults_mode() {
-        assert_eq!(parse_init_flags(&["--no".into()]).unwrap().mode, Mode::Defaults);
+        assert_eq!(
+            parse_init_flags(&["--no".into()]).unwrap().mode,
+            Mode::Defaults
+        );
     }
 
     #[test]
@@ -355,8 +366,12 @@ mod tests {
     #[test]
     fn yes_run_with_no_markers_writes_default_claude_skill() {
         let d = td();
-        let code = run_init(&["--yes".into(), "--dir".into(), d.path().display().to_string()])
-            .unwrap();
+        let code = run_init(&[
+            "--yes".into(),
+            "--dir".into(),
+            d.path().display().to_string(),
+        ])
+        .unwrap();
         assert_eq!(code, 0);
         // Default skill for an unmarked repo.
         assert!(d.path().join(".claude/skills/nub/SKILL.md").is_file());
@@ -371,7 +386,12 @@ mod tests {
         let d = td();
         std::fs::create_dir(d.path().join(".claude")).unwrap();
         std::fs::create_dir(d.path().join(".cursor")).unwrap();
-        run_init(&["--yes".into(), "--dir".into(), d.path().display().to_string()]).unwrap();
+        run_init(&[
+            "--yes".into(),
+            "--dir".into(),
+            d.path().display().to_string(),
+        ])
+        .unwrap();
         assert!(d.path().join(".claude/skills/nub/SKILL.md").is_file());
         assert!(d.path().join(".cursor/rules/nub.mdc").is_file());
     }
@@ -382,7 +402,12 @@ mod tests {
         // stanza + fallback default to NO.
         let d = td();
         std::fs::create_dir(d.path().join(".claude")).unwrap();
-        run_init(&["--no".into(), "--dir".into(), d.path().display().to_string()]).unwrap();
+        run_init(&[
+            "--no".into(),
+            "--dir".into(),
+            d.path().display().to_string(),
+        ])
+        .unwrap();
         assert!(d.path().join(".claude/skills/nub/SKILL.md").is_file());
         assert!(
             !d.path().join("AGENTS.md").exists(),
@@ -399,7 +424,12 @@ mod tests {
             r#"{"compilerOptions":{"strict":true}}"#,
         )
         .unwrap();
-        run_init(&["--yes".into(), "--dir".into(), d.path().display().to_string()]).unwrap();
+        run_init(&[
+            "--yes".into(),
+            "--dir".into(),
+            d.path().display().to_string(),
+        ])
+        .unwrap();
         let ts = std::fs::read_to_string(d.path().join("tsconfig.json")).unwrap();
         assert!(ts.contains("@nubjs/types"), "types must be wired");
         assert!(ts.contains("es2024"));
@@ -411,7 +441,12 @@ mod tests {
     fn no_tsconfig_means_no_types_wiring_offered() {
         let d = td();
         std::fs::create_dir(d.path().join(".claude")).unwrap();
-        run_init(&["--yes".into(), "--dir".into(), d.path().display().to_string()]).unwrap();
+        run_init(&[
+            "--yes".into(),
+            "--dir".into(),
+            d.path().display().to_string(),
+        ])
+        .unwrap();
         assert!(!d.path().join("tsconfig.json").exists());
         assert!(
             !d.path().join("nub-env.d.ts").exists(),
@@ -454,7 +489,12 @@ mod tests {
         std::fs::create_dir(d.path().join(".claude")).unwrap();
         std::fs::write(d.path().join("tsconfig.json"), "{}").unwrap();
         std::fs::write(d.path().join("package.json"), "{}").unwrap();
-        run_init(&["--yes".into(), "--dir".into(), d.path().display().to_string()]).unwrap();
+        run_init(&[
+            "--yes".into(),
+            "--dir".into(),
+            d.path().display().to_string(),
+        ])
+        .unwrap();
 
         let pkg = std::fs::read_to_string(d.path().join("package.json")).unwrap();
         assert_eq!(
@@ -474,7 +514,12 @@ mod tests {
             r#"{"dependencies":{"express":"4.0.0"}}"#,
         )
         .unwrap();
-        run_init(&["--yes".into(), "--dir".into(), d.path().display().to_string()]).unwrap();
+        run_init(&[
+            "--yes".into(),
+            "--dir".into(),
+            d.path().display().to_string(),
+        ])
+        .unwrap();
 
         let pkg = std::fs::read_to_string(d.path().join("package.json")).unwrap();
         let v: serde_json::Value = serde_json::from_str(&pkg).unwrap();
@@ -524,7 +569,12 @@ mod tests {
             r#"{"name":"my-app","version":"1.0.0","devDependencies":{"jest":"29.0.0"}}"#,
         )
         .unwrap();
-        run_init(&["--yes".into(), "--dir".into(), d.path().display().to_string()]).unwrap();
+        run_init(&[
+            "--yes".into(),
+            "--dir".into(),
+            d.path().display().to_string(),
+        ])
+        .unwrap();
 
         let pkg = std::fs::read_to_string(d.path().join("package.json")).unwrap();
         let v: serde_json::Value = serde_json::from_str(&pkg).unwrap();
@@ -547,7 +597,12 @@ mod tests {
         let d = td();
         std::fs::create_dir(d.path().join(".claude")).unwrap();
         std::fs::write(d.path().join("tsconfig.json"), "{}").unwrap();
-        run_init(&["--yes".into(), "--dir".into(), d.path().display().to_string()]).unwrap();
+        run_init(&[
+            "--yes".into(),
+            "--dir".into(),
+            d.path().display().to_string(),
+        ])
+        .unwrap();
         assert!(
             !d.path().join("package.json").exists(),
             "no package.json must not be created"
