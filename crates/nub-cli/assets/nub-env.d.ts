@@ -80,7 +80,7 @@ type __NubUseLibDomIfAvailable<GlobalThisKeyName extends PropertyKey, Otherwise>
 // Nub ships the WHATWG/browser subset of `Worker` over node:worker_threads.Worker.
 // @types/node has NO global `Worker` (only node:worker_threads' class), so this is
 // the genuine gap. `MessageEvent`, `ErrorEvent`, and `MessagePort` are ALREADY
-// global in @types/node (web-globals/fetch.d.ts + messaging.d.ts) — verified
+// global in @types/node>=25 (web-globals/fetch.d.ts + messaging.d.ts) — verified
 // empirically — so they are referenced from there and intentionally NOT redeclared
 // here (redeclaring them collides: TS2403).
 //
