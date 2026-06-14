@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 /**
  * fray — the board + validator. There is NO stored board file: the board/status
  * view is COMPUTED ON DEMAND from the independent per-thread `.fray/<slug>.md`
@@ -18,20 +19,24 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadConfig, STATUS, TERMINAL } from './config.mjs';
 
-const FRAY_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '.fray');
+const PROJECT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const FRAY_DIR = join(PROJECT_DIR, '.fray');
 
-// The thread-status vocabulary. Keep in sync with the copy in .claude/hooks/iw-reminder.ts.
-// `done` (completed) and `dismissed` (decided NOT to pursue) are both TERMINAL — kept, never
-// deleted, excluded from the active board's pending views.
-export const STATUS = ['todo', 'active', 'blocked', 'needs-decision', 'done', 'dismissed'];
-const TERMINAL = ['done', 'dismissed'];
+// STATUS/TERMINAL are imported from ./config.mjs — the single shared source the hooks
+// also use, so the vocab can never drift between the tool and the reminder hook.
 const REQUIRED = ['title', 'status']; // created / last_update are optional.
 
-// Parse a top-of-file `--- … ---` YAML frontmatter block (flat `key: value` only).
+/**
+ * Parse a top-of-file `--- … ---` YAML frontmatter block (flat `key: value` only).
+ * @param {string} src
+ * @returns {Record<string, string> | null}
+ */
 function frontmatter(src) {
   const m = src.match(/^---\n([\s\S]*?)\n---/);
   if (!m) return null; // no frontmatter at all
+  /** @type {Record<string, string>} */
   const out = {};
   for (const line of m[1].split('\n')) {
     const kv = line.match(/^(\w[\w-]*):\s*(.*)$/);
@@ -40,7 +45,11 @@ function frontmatter(src) {
   return out;
 }
 
-// First non-blank line under `## Next step`, collapsed to one cell.
+/**
+ * First non-blank line under `## Next step`, collapsed to one cell.
+ * @param {string} src
+ * @returns {string}
+ */
 function nextStep(src) {
   const lines = src.split('\n');
   const i = lines.findIndex((l) => /^##\s+Next step\s*$/i.test(l));
@@ -52,20 +61,8 @@ function nextStep(src) {
   return '';
 }
 
-// Read .fray/config.yml globals (flat keys + a `state:` block). Tolerant: missing → {}.
-function config() {
-  try {
-    const src = readFileSync(join(FRAY_DIR, 'config.yml'), 'utf8');
-    const flat = {};
-    for (const line of src.split('\n')) {
-      const kv = line.match(/^(\w[\w-]*):\s*(\S.*)$/); // top-level scalars only
-      if (kv) flat[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, '');
-    }
-    return flat;
-  } catch {
-    return {};
-  }
-}
+// .fray/config.yml globals — parsed by the shared, type-safe loadConfig.
+const cfg = loadConfig(PROJECT_DIR);
 
 const threads = readdirSync(FRAY_DIR)
   .filter((f) => f.endsWith('.md') && !f.startsWith('_')) // `_`-prefixed = non-thread meta (e.g. a stray _board.md)
@@ -74,6 +71,7 @@ const threads = readdirSync(FRAY_DIR)
     const id = f.replace(/\.md$/, ''); // the filename slug IS the id
     const src = readFileSync(join(FRAY_DIR, f), 'utf8');
     const fm = frontmatter(src);
+    /** @type {string[]} */
     const errors = [];
     if (!fm) {
       errors.push('no YAML frontmatter');
@@ -97,7 +95,7 @@ if (process.argv.includes('--validate')) {
 }
 
 if (process.argv.includes('--json')) {
-  console.log(JSON.stringify({ config: config(), threads: threads.map(({ text, ...t }) => t), errors: allErrors }, null, 2));
+  console.log(JSON.stringify({ config: cfg, threads: threads.map(({ text, ...t }) => t), errors: allErrors }, null, 2));
   process.exit(0);
 }
 
@@ -121,9 +119,8 @@ if (only && !STATUS.includes(only)) {
   console.error(`unknown status "${only}" (expected one of: ${STATUS.join(', ')})`);
   process.exit(2);
 }
-const cfg = config();
 const out = [];
-out.push(`fray board — autonomous_mode: ${cfg.autonomous_mode ?? '?'}${only ? ` — status:${only}` : ''}`);
+out.push(`fray board — autonomous_mode: ${cfg.autonomousMode ? 'on' : 'off'}${only ? ` — status:${only}` : ''}`);
 if (allErrors.length) out.push(`\n⚠ VALIDATION ERRORS:\n${allErrors.join('\n')}`);
 for (const s of only ? [only] : STATUS) {
   const group = threads.filter((t) => t.status === s);

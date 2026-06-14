@@ -1,6 +1,7 @@
+// @ts-check
 // SessionStart hook (matcher: "compact") — re-seeds nub's load-bearing architecture
-// model after a compaction, so structural knowledge is never silently lost. Run via nub
-// (dogfood): `nub .claude/hooks/post-compact-reground.ts`.
+// model after a compaction, so structural knowledge is never silently lost. Run directly
+// with node (no transpiler): `node .claude/hooks/post-compact-reground.mjs`.
 //
 // Why SessionStart and not PostCompact: PostCompact is OBSERVE-ONLY — its
 // hookSpecificOutput.additionalContext is NOT delivered to the model (verified against the
@@ -11,11 +12,13 @@
 // Why this exists: after a long compacted session the orchestrator once asserted a
 // badly-wrong nub<->aube model (treated aube's whole CLI surface as nub's), reasoning from
 // stale post-compaction framing instead of the code. This hook re-injects the distilled model.
-import { readFileSync } from "node:fs";
+import { readFileSync } from 'node:fs';
+import { loadConfig } from '../../scripts/fray/config.mjs';
 
-let input: any = {};
+/** @type {{ agent_id?: unknown, agentId?: unknown, source?: string }} */
+let input = {};
 try {
-  input = JSON.parse(readFileSync(0, "utf8"));
+  input = JSON.parse(readFileSync(0, 'utf8'));
 } catch {
   /* no stdin / not JSON → input stays {} → proceed (fail-open to inject) */
 }
@@ -23,7 +26,9 @@ try {
 // SessionStart — not normal startup/resume/clear (the settings matcher already scopes to
 // "compact"; this is belt-and-suspenders).
 if (input.agent_id ?? input.agentId) process.exit(0);
-if (input.source && input.source !== "compact") process.exit(0);
+if (input.source && input.source !== 'compact') process.exit(0);
+// fray kill-switch — `enabled: false` silences the hook (missing/unparseable → defaults → enabled, fail-safe).
+if (loadConfig(process.env.CLAUDE_PROJECT_DIR ?? '.').enabled === false) process.exit(0);
 
 const grounding = `⟦nub architecture re-grounding (post-compaction)⟧ Context was just compacted. Re-seed the load-bearing nub<->aube model NOW, and re-read wiki/architecture.md + the cited code (and the nub-aube-architecture memory) before asserting ANY structural claim.
 
@@ -36,7 +41,7 @@ const grounding = `⟦nub architecture re-grounding (post-compaction)⟧ Context
 
 process.stdout.write(
   JSON.stringify({
-    hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: grounding },
+    hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: grounding },
   }),
 );
 process.exit(0);
