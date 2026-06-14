@@ -22,7 +22,10 @@ import { fileURLToPath } from 'node:url';
 const FRAY_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '.fray');
 
 // The thread-status vocabulary. Keep in sync with the copy in .claude/hooks/iw-reminder.ts.
-export const STATUS = ['todo', 'active', 'blocked', 'needs-decision', 'done'];
+// `done` (completed) and `dismissed` (decided NOT to pursue) are both TERMINAL — kept, never
+// deleted, excluded from the active board's pending views.
+export const STATUS = ['todo', 'active', 'blocked', 'needs-decision', 'done', 'dismissed'];
+const TERMINAL = ['done', 'dismissed'];
 const REQUIRED = ['title', 'status']; // created / last_update are optional.
 
 // Parse a top-of-file `--- … ---` YAML frontmatter block (flat `key: value` only).

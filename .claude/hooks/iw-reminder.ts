@@ -21,7 +21,7 @@ try {
 }
 
 const core =
-  "⟦orchestrator reminder⟧ You are the ORCHESTRATOR: delegate ALL project work — code/doc edits, GitHub writes (comments/PR edits/resolves), builds, tests, investigations — to BACKGROUND sub-agents; never do them yourself in the foreground. Your foreground = dispatch, synthesize returns, decide, and edit your own control surfaces (the fray board/threads + memory/skill/settings) + final reviewed git. Keep the fray board + thread files (.fray/_board.md + .fray/<thread>.md) synced THIS turn: fold every returned sub-agent's facts into its thread (or the board for one-shots), advance statuses, surface decisions/questions; re-derive the board's Threads table with `node scripts/fray/index.mjs --write`. HYGIENE: a thread is a LIVING STATUS of CURRENT work, NOT a changelog — DELETE done items (never log them chronologically), keep structured state in the board's YAML front matter, never let it accrete. ONLY the orchestrator edits the board + thread files (sub-agents write findings sidecars, never the canonical docs). Reconcile EVERY in-flight sub-agent; never drop a thread. Before asserting how nub/aube is STRUCTURED, ground it in wiki/architecture.md / the nub-aube-architecture memory / code you just read — never reason from stale or secondhand framing.";
+  "⟦orchestrator reminder⟧ You are the ORCHESTRATOR: delegate ALL project work — code/doc edits, GitHub writes (comments/PR edits/resolves), builds, tests, investigations — to BACKGROUND sub-agents; never do them yourself in the foreground. Your foreground = dispatch, synthesize returns, decide, and edit your own control surfaces (the fray board/threads + memory/skill/settings) + final reviewed git. Keep the fray threads (.fray/<thread>.md; globals in .fray/config.yml) synced THIS turn: fold every returned sub-agent's facts into its thread, advance its status, surface decisions/questions; scan the board on demand (`node scripts/fray/index.mjs`). HYGIENE: keep each thread's ## Status + ## Next current so the LIVE state isn't buried — but a thread CAN hold a full record (a done/dismissed thread SHOULD have a complete investigation write-up; do NOT wipe detail to keep it lean). Global structured state lives in config.yml. DONE/DISMISSED threads are KEPT, NEVER deleted — each is its own file, excluded from the active board + the pending list by status, so a finished thread is zero bloat (a core benefit of per-file threads; do NOT clean them up). ONLY the orchestrator edits the board + thread files (sub-agents write findings sidecars, never the canonical docs). Reconcile EVERY in-flight sub-agent; never drop a thread. Before asserting how nub/aube is STRUCTURED, ground it in wiki/architecture.md / the nub-aube-architecture memory / code you just read — never reason from stale or secondhand framing.";
 
 function emit(ctx: string): never {
   process.stdout.write(
@@ -43,8 +43,9 @@ try {
   // surfaces immediately, not whenever I happen to look). STATUS must stay in sync with
   // scripts/fray/index.mjs (the authoritative `--validate`). Unrecognized fields are
   // allowed by design — only required fields + the status vocab are checked.
-  const STATUS = ["todo", "active", "blocked", "needs-decision", "done"];
-  const pending: string[] = []; // `<slug>[status]` for every non-done thread — compact, one line, names included so a stalled thread is caught BY NAME (not just a count). Full detail stays in `node scripts/fray/index.mjs`, NOT injected per-message.
+  const STATUS = ["todo", "active", "blocked", "needs-decision", "done", "dismissed"];
+  const TERMINAL = ["done", "dismissed"]; // completed OR decided-against — both kept, both excluded from the pending list.
+  const pending: string[] = []; // `<slug>[status]` for every non-terminal thread — compact, one line, names included so a stalled thread is caught BY NAME (not just a count). Full detail stays in `node scripts/fray/index.mjs`, NOT injected per-message.
   const errors: string[] = [];
   try {
     for (const f of readdirSync(join(dir, ".fray"))) {
@@ -55,13 +56,13 @@ try {
       if (!/^title:\s*\S/m.test(src)) errors.push(`${id}: missing title`);
       if (!st) errors.push(`${id}: missing status`);
       else if (!STATUS.includes(st)) errors.push(`${id}: invalid status "${st}"`);
-      if (st !== "done") pending.push(`${id}[${st ?? "?"}]`);
+      if (!TERMINAL.includes(st ?? "")) pending.push(`${id}[${st ?? "?"}]`);
     }
   } catch {
     /* no .fray dir yet */
   }
   const status =
-    `FRAY — ${pending.length} pending: ${pending.join(", ") || "none"}. Advance or reconcile EACH this turn; if you went deep on ONE thread (or on fray/meta plumbing), don't let the others silently stall (\`node scripts/fray/index.mjs\` for detail).` +
+    `FRAY — ${pending.length} pending: ${pending.join(", ") || "none"}. Advance or reconcile EACH this turn; if you went deep on ONE thread, don't let the others silently stall (\`node scripts/fray/index.mjs\` for detail). When you fold a return: DRAIN that thread's queued follow-ups (\`## Steps\` items marked QUEUED — dispatch on <agent>'s return) + MOVE any answered Open question into Decisions (a DECIDED thing lives under ## Decisions, NEVER Open questions). done/dismissed threads are TERMINAL + KEPT — never delete them.` +
     (errors.length ? `  ⚠ VALIDATION ERRORS (fix now): ${errors.join("; ")}` : "");
 
   const modeLine =
