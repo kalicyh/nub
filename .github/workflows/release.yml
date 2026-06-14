@@ -105,24 +105,105 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      # === produce-the-blob step (ISOLATED on purpose) ===========================
-      # This is the ONLY place the primer's SOURCE is decided. Today it generates
-      # from the public registry via the committed generate-primer.mjs (tokenless).
-      # To later pull the blob from a PRIVATE repo's release (nubjs/nub-primer),
-      # swap ONLY this step's body for a `gh release download` (+ its token) — the
-      # downstream contract is unchanged: it must leave a file named
-      # primer-top${AUBE_PRIMER_TOP}-v${AUBE_PRIMER_VERSION_CAP}-s<schema>.rkyv.json
-      # under vendor/aube/crates/aube-resolver/data/ for the artifact upload below.
-      # build.rs's `source.with_extension("json")` branch compresses that JSON
-      # into the embedded rkyv+zstd blob, so no node is needed in the consumers.
-      - name: Generate metadata primer
-        id: primer
+      # === produce-the-blob: source decision (ISOLATED on purpose) ================
+      # This is the ONLY place the primer's SOURCE is decided. Two sources, in
+      # preference order, both leaving ONE file under
+      # vendor/aube/crates/aube-resolver/data/ named
+      # primer-top${AUBE_PRIMER_TOP}-v${AUBE_PRIMER_VERSION_CAP}-s<schema>.rkyv.{zst,json}
+      # — the exact name the consumers' build.rs computes from those same TOP/CAP
+      # and PRIMER_DATA_SCHEMA, so it's picked up directly with no node needed in
+      # the cross containers. The downstream contract (the metadata-primer artifact
+      # → every build embeds it; AUBE_REQUIRE_PRIMER=1 + the per-target gate) is
+      # IDENTICAL regardless of which source wins:
+      #
+      #   1. SMART blob (token present): the private nubjs/nub-primer pipeline's
+      #      latest-s2 release asset (multi-factor scoring, ~93% lockfile coverage
+      #      @ 7.3MB). It is the on-disk `.rkyv.zst` form build.rs reads directly
+      #      (read raw bytes → zstd-decode → rkyv → per-package re-pack), byte-
+      #      compatible with the public generator's output. We download it, validate
+      #      it (non-empty + zstd-decodes), and RENAME it to the build-expected
+      #      `-s<schema>.rkyv.zst` filename for this TOP/CAP. The blob's own TOP/CAP
+      #      (6172/60) are irrelevant downstream — at this point the filename is just
+      #      the selector build.rs greps for; the embedded content is whatever we put
+      #      there. A schema mismatch (build.rs bumped past the blob's -sK) downloads
+      #      nothing → clean fallback.
+      #   2. PUBLIC generate (token absent OR download/validation failed): the
+      #      committed tokenless generate-primer.mjs against the public registry
+      #      (~70% coverage @ 9.1MB) — the unchanged 0.0.38/0.0.39 behavior. Emits
+      #      the `.rkyv.json` form; build.rs's `source.with_extension("json")` branch
+      #      compresses it into the embedded rkyv+zstd blob.
+      #
+      # INERT WITHOUT THE PAT: a missing GitHub Actions secret is the empty string,
+      # so the smart step explicitly tests `-z "$PRIMER_BLOB_TOKEN"` and skips the
+      # download entirely when it's empty — no PAT ⇒ source=fallback ⇒ identical to
+      # today. The smart step is non-fatal by construction (it never `exit 1`s on a
+      # download/validation miss; it just records source=fallback), so a private-repo
+      # outage or a revoked token degrades to the public path rather than failing the
+      # release.
+      - name: Try smart primer blob (private repo, token-gated)
+        id: smart
         shell: bash
-        # Retry the whole generation a few times so a transient registry hiccup
-        # (the script also retries each request internally) doesn't fail the
-        # release. The `-s<schema>` suffix MUST match build.rs's PRIMER_DATA_SCHEMA
-        # so the consumers' build.rs picks the artifact up directly instead of
-        # falling back to spawning node (which would fail in the cross containers).
+        env:
+          GH_TOKEN: ${{ secrets.PRIMER_BLOB_TOKEN }}
+        run: |
+          # Default: fall back to public-generate. Only flips to "smart" on a fully
+          # validated download. Never exits non-zero — a miss must downgrade, not
+          # fail the release.
+          echo "source=fallback" >> "$GITHUB_OUTPUT"
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "PRIMER_BLOB_TOKEN absent (empty secret) — using public-generate fallback (current 0.0.38/0.0.39 behavior)."
+            exit 0
+          fi
+
+          schema=$(grep -E '^const PRIMER_DATA_SCHEMA: u32 = [0-9]+;' \
+            vendor/aube/crates/aube-resolver/build.rs | awk -F'= ' '{print $2}' | tr -d ';')
+          if [ -z "$schema" ]; then
+            echo "::warning::could not parse PRIMER_DATA_SCHEMA — using public-generate fallback"
+            exit 0
+          fi
+
+          dir="vendor/aube/crates/aube-resolver/data"
+          mkdir -p "$dir"
+          tmp="$(mktemp -d)"
+
+          # Pull the rolling latest-s${schema} pointer, matching ONLY blobs whose
+          # filename schema matches what build.rs expects. A schema mismatch (or a
+          # missing pointer) downloads nothing → fallback.
+          if ! gh release download "latest-s${schema}" \
+                 --repo nubjs/nub-primer \
+                 --pattern "primer-*-s${schema}.rkyv.zst" \
+                 --dir "$tmp" --clobber; then
+            echo "::warning::smart primer download failed (no token access, missing latest-s${schema}, or network) — using public-generate fallback"
+            exit 0
+          fi
+
+          blob="$(find "$tmp" -maxdepth 1 -name "primer-*-s${schema}.rkyv.zst" 2>/dev/null | head -1)"
+          if [ -z "$blob" ] || [ ! -s "$blob" ]; then
+            echo "::warning::smart primer download produced no non-empty -s${schema} blob — using public-generate fallback"
+            exit 0
+          fi
+          if ! zstd -t "$blob" 2>/dev/null; then
+            echo "::warning::smart primer blob failed zstd validation — using public-generate fallback"
+            exit 0
+          fi
+
+          # Rename into the build-expected on-disk name for THIS TOP/CAP/schema so
+          # the consumers' build.rs reads it directly (the .rkyv.zst branch).
+          out="$dir/primer-top${AUBE_PRIMER_TOP}-v${AUBE_PRIMER_VERSION_CAP}-s${schema}.rkyv.zst"
+          mv "$blob" "$out"
+          bytes=$(wc -c < "$out")
+          echo "✓ smart primer: $(basename "$out") is $bytes bytes (private nubjs/nub-primer latest-s${schema})"
+          echo "source=smart" >> "$GITHUB_OUTPUT"
+          echo "path=$out" >> "$GITHUB_OUTPUT"
+      # Public-registry generate — the UNCHANGED 0.0.38/0.0.39 path. Runs only when
+      # the smart blob wasn't adopted (token absent, download failed, or validation
+      # failed). Same body as before: retry the whole generation, fail loud on an
+      # empty/near-empty result, emit the `.rkyv.json` build.rs compresses+embeds.
+      - name: Generate metadata primer (public fallback)
+        id: primer
+        if: steps.smart.outputs.source != 'smart'
+        shell: bash
         run: |
           cd vendor/aube
           schema=$(grep -E '^const PRIMER_DATA_SCHEMA: u32 = [0-9]+;' \
@@ -154,11 +235,18 @@ jobs:
           fi
           echo "primer $out is $bytes bytes"
           echo "path=vendor/aube/$out" >> "$GITHUB_OUTPUT"
+      # Upload whichever source won. Exactly ONE primer-* file exists in data/ at
+      # this point (smart .rkyv.zst XOR public .rkyv.json), both named for the
+      # build-expected TOP/CAP/schema; the glob captures it. The downstream build
+      # job downloads this artifact into the same data/ dir, so build.rs picks it up
+      # directly. `if-no-files-found: error` keeps the empty-primer guard: a missing
+      # file here (both sources failed) fails the release loud rather than shipping
+      # an empty primer.
       - name: Upload metadata primer artifact
         uses: actions/upload-artifact@v4
         with:
           name: metadata-primer
-          path: ${{ steps.primer.outputs.path }}
+          path: vendor/aube/crates/aube-resolver/data/primer-*-s*.rkyv.*
           if-no-files-found: error
 
   test:
