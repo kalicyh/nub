@@ -3172,6 +3172,41 @@ fn suggest_package_manager(cwd: &Path) -> String {
 /// channel downloads from here; mirror of install.sh.
 const RELEASE_REPO: &str = "nubjs/nub";
 
+/// Internal, test-only override for the GitHub *releases-download* base
+/// (`https://github.com/<repo>/releases/download`). When set, `tarball_url` /
+/// `checksum_url` point at it instead of github.com, so the self-owned
+/// download+verify+swap path can be driven against a local `file://` fixture
+/// with no network. UNSET in all normal operation (default behavior is
+/// byte-identical); this is NOT a documented user knob — it exists purely so the
+/// upgrade flow is end-to-end testable without publishing a real release. The
+/// value is used verbatim as a URL prefix: the artifact for `v<version>` /
+/// `<target>` is `<base>/v<version>/nub-<target>.tar.gz` (mirroring GitHub's
+/// release-asset layout), so a fixture must reproduce that path shape.
+const RELEASE_DOWNLOAD_BASE_ENV: &str = "NUB_RELEASE_BASE_URL";
+
+/// Internal, test-only override for the "resolve `latest`" endpoint
+/// (default: GitHub's `…/releases/latest` API). When set, `resolve_version`
+/// fetches the JSON `{ "tag_name": "v<X.Y.Z>" }` from here instead. Same
+/// contract as [`RELEASE_DOWNLOAD_BASE_ENV`]: unset in normal operation, never a
+/// documented user surface, present only to make the upgrade resolve path
+/// testable against a `file://` fixture.
+const RELEASE_LATEST_API_ENV: &str = "NUB_RELEASE_LATEST_URL";
+
+/// The releases-download base URL — the test seam's override if set, else the
+/// canonical github.com path. Centralized so the override is read in exactly one
+/// place and the default is the single source of truth.
+fn release_download_base() -> String {
+    std::env::var(RELEASE_DOWNLOAD_BASE_ENV)
+        .unwrap_or_else(|_| format!("https://github.com/{RELEASE_REPO}/releases/download"))
+}
+
+/// The "resolve latest" API URL — the test seam's override if set, else GitHub's
+/// `releases/latest` endpoint.
+fn release_latest_api() -> String {
+    std::env::var(RELEASE_LATEST_API_ENV)
+        .unwrap_or_else(|_| format!("https://api.github.com/repos/{RELEASE_REPO}/releases/latest"))
+}
+
 /// The npm package users `npm install -g`. The bare `nub` name is an unrelated
 /// third-party package — emitting it would clobber a working install, so every
 /// npm-channel command must target the scoped `@nubjs/nub`.
@@ -3285,9 +3320,13 @@ fn npm_upgrade_command_invocation(target: &str) -> std::process::Command {
 
 /// GitHub release tarball URL for a resolved version + platform target. Mirrors
 /// install.sh's `url=` line so the self-owned channel pulls the same artifact
-/// the installer did.
+/// the installer did. The base is [`release_download_base`] so the test seam can
+/// redirect it to a local fixture; unset → the canonical github.com URL.
 fn tarball_url(version: &str, target: &str) -> String {
-    format!("https://github.com/{RELEASE_REPO}/releases/download/v{version}/nub-{target}.tar.gz")
+    format!(
+        "{}/v{version}/nub-{target}.tar.gz",
+        release_download_base()
+    )
 }
 
 /// SHA-256 checksum sidecar URL for the tarball. release.yml publishes a
@@ -3415,7 +3454,7 @@ fn resolve_version(spec: &str) -> Result<String> {
     if spec != "latest" {
         return Ok(spec.trim_start_matches('v').to_string());
     }
-    let api = format!("https://api.github.com/repos/{RELEASE_REPO}/releases/latest");
+    let api = release_latest_api();
     // GitHub requires a User-Agent; curl supplies one. Parse the tag_name out of
     // the JSON the same way install.sh does (no full JSON parse needed for one
     // field, but serde_json is already a dep so use it for robustness).
@@ -3685,10 +3724,21 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// best-effort: discovery failure never fails `--version` (no pin resolution
 /// context is required to report nub's own version). Supersedes the 2026-06-04
 /// "pure --version, no node info" record (accf251); ruled by the maintainer 2026-06-11.
+///
+/// CRITICAL: a version query must be near-INSTANT and must NEVER spawn a Node
+/// subprocess, hit the network, or provision. So the resolved-Node line uses
+/// `discover_node_cached` (NOT `discover_node`): it learns the Node version only
+/// for free — from the mtime-valid discovery cache for a PATH node, or from a
+/// store/nvm directory name — and reports nothing when the version would cost a
+/// spawn. This fixes the multi-second `nub --version` hang seen when the box's
+/// `node` startup was slow: the old `discover_node` blocked on a `node --version`
+/// spawn purely to print this courtesy line. The bare `v<semver>` on stdout is
+/// unchanged; only the best-effort stderr line is now spawn-free, so on a cold
+/// cache it may be omitted until a real run warms it.
 fn print_version() {
     println!("v{}", env!("CARGO_PKG_VERSION"));
     if let Ok(cur) = env::current_dir() {
-        if let Ok(node) = nub_core::node::discovery::discover_node(&cur) {
+        if let Some(node) = nub_core::node::discovery::discover_node_cached(&cur) {
             let provenance = match &node.pin_source {
                 Some(src) => format!("resolved from {src}"),
                 None => "from PATH".to_string(),
@@ -5741,10 +5791,19 @@ mod tests {
         assert!(msg.contains("re-run the Windows installer"));
     }
 
+    /// Serializes the tests that read or mutate the release-URL env seams
+    /// (`NUB_RELEASE_BASE_URL` / `NUB_RELEASE_LATEST_URL`). Those vars are
+    /// process-global, so a test that sets them mustn't run concurrently with one
+    /// that asserts the unset-default URL shape.
+    static RELEASE_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     // Verification correctness: the checksum sidecar URL is the tarball URL plus
     // `.sha256`, and the digest helper matches the well-known empty-input vector.
+    // Asserts the DEFAULT (env-seam unset) URLs, so it holds the release-env lock
+    // to never observe the seam mid-override from the e2e test below.
     #[test]
     fn tarball_and_checksum_urls_pair_up() {
+        let _g = RELEASE_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let url = tarball_url("0.0.6", "darwin-arm64");
         assert_eq!(
             url,
@@ -5758,6 +5817,186 @@ mod tests {
         assert_eq!(
             sha256_hex(b""),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    // END-TO-END upgrade test against a LOCAL fake release — closes the "upgrade
+    // was untestable, so we shipped a broken one" gap. Drives the real self-owned
+    // path (`perform_selfowned_upgrade`) — resolve `latest`, download, verify the
+    // SHA-256, extract, atomic-swap, +x, recreate the nubx alias — entirely
+    // against `file://` fixtures via the internal `NUB_RELEASE_*` seams, so it
+    // touches NO network. Asserts: (a) `latest` resolves to the tag the fake
+    // channel advertises, (b) the swapped-in binary is the fixture's bytes,
+    // executable, with the nubx alias present, and (c) the npm-channel install
+    // invocation is OS-correct for the resolved version. A wrong-checksum sub-case
+    // proves the verify step actually rejects a tampered artifact.
+    //
+    // Unix-only: the self-owned swap path (symlink, mode bits, the Windows
+    // fail-fast bail) is POSIX; the Windows arm is covered by
+    // `windows_selfowned_upgrade_is_refused_with_recovery_steps`.
+    #[cfg(unix)]
+    #[test]
+    fn self_owned_upgrade_runs_end_to_end_against_a_local_fake_release() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Only run where this build actually publishes a tarball — the path under
+        // test bails early otherwise, and there'd be nothing to exercise.
+        let Some(target) = platform_target() else {
+            eprintln!("skipping: no published tarball target for this platform");
+            return;
+        };
+        let _g = RELEASE_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        const FAKE_VERSION: &str = "9.9.9"; // not a real release — proves the channel, not the net
+        let fixture = tempfile::tempdir().expect("fixture root");
+
+        // 1. Build the artifact the fake channel serves: a tar.gz containing the
+        //    install.sh layout (bin/nub + runtime/), with sentinel bytes so we can
+        //    prove the SWAPPED-IN binary is the downloaded one, not the old one.
+        const NEW_NUB_BYTES: &[u8] = b"#!/bin/sh\necho fake-upgraded-nub 9.9.9\n";
+        let build = fixture.path().join("build");
+        std::fs::create_dir_all(build.join("bin")).unwrap();
+        std::fs::create_dir_all(build.join("runtime")).unwrap();
+        std::fs::write(build.join("bin").join("nub"), NEW_NUB_BYTES).unwrap();
+        std::fs::write(build.join("runtime").join("VERSION"), FAKE_VERSION).unwrap();
+
+        // Lay the asset down at GitHub's release-asset path shape so the seam's
+        // `<base>/v<version>/nub-<target>.tar.gz` resolves: download_base/v9.9.9/.
+        let asset_dir = fixture
+            .path()
+            .join("releases")
+            .join("download")
+            .join(format!("v{FAKE_VERSION}"));
+        std::fs::create_dir_all(&asset_dir).unwrap();
+        let archive = asset_dir.join(format!("nub-{target}.tar.gz"));
+        let tar_ok = std::process::Command::new("tar")
+            .arg("-czf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(&build)
+            .args(["bin", "runtime"])
+            .status()
+            .expect("tar the fixture archive");
+        assert!(tar_ok.success(), "fixture archive must tar cleanly");
+
+        // The sidecar carries the real digest of the archive we just wrote, in the
+        // `<hex>␠␠<name>` shasum format the fetch parses.
+        let archive_bytes = std::fs::read(&archive).unwrap();
+        let digest = sha256_hex(&archive_bytes);
+        std::fs::write(
+            asset_dir.join(format!("nub-{target}.tar.gz.sha256")),
+            format!("{digest}  nub-{target}.tar.gz\n"),
+        )
+        .unwrap();
+
+        // 2. The fake "latest" API response: `latest` must resolve to v9.9.9.
+        let latest_json = fixture.path().join("latest.json");
+        std::fs::write(&latest_json, format!(r#"{{"tag_name":"v{FAKE_VERSION}"}}"#)).unwrap();
+
+        // 3. A self-owned install with a DIFFERENT old binary in place, so the swap
+        //    has something to replace and we can prove the bytes changed.
+        let install = fixture.path().join(".nub");
+        let old_bin = install.join("bin");
+        std::fs::create_dir_all(&old_bin).unwrap();
+        std::fs::write(old_bin.join("nub"), b"#!/bin/sh\necho OLD\n").unwrap();
+        std::fs::create_dir_all(install.join("runtime")).unwrap();
+        std::fs::write(install.join("runtime").join("VERSION"), "0.0.1").unwrap();
+
+        // 4. Point the seams at the fixtures and run the REAL upgrade path. `file://`
+        //    URLs (curl supports them) keep this entirely off the network. SAFETY:
+        //    serialized by RELEASE_ENV_LOCK; restored in this same scope below.
+        let base_url = format!("file://{}/releases/download", fixture.path().display());
+        let latest_url = format!("file://{}", latest_json.display());
+        unsafe {
+            std::env::set_var(RELEASE_DOWNLOAD_BASE_ENV, &base_url);
+            std::env::set_var(RELEASE_LATEST_API_ENV, &latest_url);
+        }
+
+        // (a) `latest` resolves to the fake channel's advertised tag.
+        let resolved = resolve_version("latest").expect("resolve latest from fake channel");
+        assert_eq!(
+            resolved, FAKE_VERSION,
+            "`latest` must resolve to the tag the fake channel advertises, got {resolved}"
+        );
+
+        // The full download→verify→extract→swap→chmod→symlink path.
+        let result = perform_selfowned_upgrade(&install, "latest");
+
+        // Wrong-checksum sub-case: corrupt the archive after digesting it and prove
+        // the verify step REFUSES it (run before asserting the happy path so a
+        // mistakenly-passing verify can't be masked by the good run). Use a second
+        // install so the good run's result is independent.
+        let bad_install = fixture.path().join(".nub-bad");
+        std::fs::create_dir_all(bad_install.join("bin")).unwrap();
+        std::fs::write(bad_install.join("bin").join("nub"), b"OLD\n").unwrap();
+        std::fs::create_dir_all(bad_install.join("runtime")).unwrap();
+        std::fs::write(
+            asset_dir.join(format!("nub-{target}.tar.gz.sha256")),
+            format!("{}  nub-{target}.tar.gz\n", "0".repeat(64)),
+        )
+        .unwrap();
+        let bad = perform_selfowned_upgrade(&bad_install, "latest");
+
+        // Restore env BEFORE asserting so a failed assertion can't leak the seam.
+        unsafe {
+            std::env::remove_var(RELEASE_DOWNLOAD_BASE_ENV);
+            std::env::remove_var(RELEASE_LATEST_API_ENV);
+        }
+
+        // (b) The happy path installed the fixture's bytes, executable, with nubx.
+        result.expect("upgrade against the local fake release must succeed");
+        let live_nub = install.join("bin").join("nub");
+        assert_eq!(
+            std::fs::read(&live_nub).unwrap(),
+            NEW_NUB_BYTES,
+            "swapped-in bin/nub must be the downloaded fixture bytes, not the old binary"
+        );
+        assert_ne!(
+            std::fs::metadata(&live_nub).unwrap().permissions().mode() & 0o111,
+            0,
+            "upgraded bin/nub must be executable (the 0644-from-CI bug fix)"
+        );
+        let nubx = install.join("bin").join("nubx");
+        assert_eq!(
+            std::fs::read_link(&nubx).unwrap(),
+            Path::new("nub"),
+            "self-owned upgrade must recreate the nubx → nub alias"
+        );
+        assert_eq!(
+            std::fs::read(install.join("runtime").join("VERSION")).unwrap(),
+            FAKE_VERSION.as_bytes(),
+            "runtime/ must be swapped to the new release's payload"
+        );
+
+        // (c) The npm-channel install invocation is OS-correct for the resolved
+        //     version — the same regression the broken release exposed, now pinned
+        //     against a version that came from the (fake) channel rather than a
+        //     hard-coded literal.
+        let cmd = npm_upgrade_command_invocation(&resolved);
+        let prog = cmd.get_program().to_string_lossy().into_owned();
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        if cfg!(windows) {
+            assert_eq!(prog, "cmd");
+            assert_eq!(args, vec!["/C", "npm", "install", "-g", "@nubjs/nub@9.9.9"]);
+        } else {
+            assert_eq!(prog, "npm");
+            assert_eq!(args, vec!["install", "-g", "@nubjs/nub@9.9.9"]);
+        }
+
+        // Wrong-checksum verdict: the tampered sidecar must have been rejected, and
+        // the bad install left untouched (still the old bytes).
+        let err = bad.expect_err("a checksum mismatch must abort the upgrade");
+        assert!(
+            err.to_string().contains("checksum mismatch"),
+            "mismatch must surface as a checksum error, got: {err}"
+        );
+        assert_eq!(
+            std::fs::read(bad_install.join("bin").join("nub")).unwrap(),
+            b"OLD\n",
+            "a rejected upgrade must leave the existing install untouched"
         );
     }
 
