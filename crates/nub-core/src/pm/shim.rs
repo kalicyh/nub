@@ -1086,12 +1086,28 @@ fn scan_path(
 
 /// When the running `nub` IS the shim dir's own hardlink (the dir is prepended
 /// to PATH, so post-`nub pm shim` a bare `nub` resolves there), defer to the
-/// real binary found past the shim dir: after an upgrade swaps the official
-/// `nub` (new inode), the shim-dir link still carries the OLD bytes — without
-/// this passthrough, `nub` (including `nub pm shim` itself, the re-link) would
-/// run stale code forever. `None` = not running from the shim dir, or no other
-/// `nub` exists (post-uninstall: keep running, `unshim` must still work), or
-/// the found binary is the same file (no upgrade happened — no point exec'ing).
+/// SELF-OWNED official binary — the sibling `<~/.nub>/bin/nub`, never "whatever
+/// nub turns up next on PATH". After a self-owned upgrade swaps that binary (new
+/// inode) the shim-dir link still carries the OLD bytes, so without this
+/// passthrough `nub` (including `nub pm shim` itself, the re-link) would run
+/// stale code forever.
+///
+/// The target MUST be the sibling `bin/nub`, not a PATH scan. A PATH scan was
+/// the original implementation and it is unsound: when the shim hardlink and the
+/// upgraded `bin/nub` share an inode (the normal post-relink steady state, and
+/// the state every fresh install starts in), the scan's "skip self by inode"
+/// guard skipped the *correct* `bin/nub` and fell through to the FIRST OTHER nub
+/// anywhere on PATH — a foreign npm-global / homebrew / dev-tree install, often
+/// an OLDER version. The observed failure (2026-06-13): a self-owned upgrade to
+/// 0.0.37 succeeded and relinked the shims, but a stale npm-global 0.0.31 lower
+/// on PATH made `nub` (resolving to the shim) silently run 0.0.31 — `nub upgrade`
+/// reported success while `nub -v` showed the old version. Resolving the sibling
+/// directly removes the foreign-binary hazard entirely.
+///
+/// `None` (= run self) when: not running from the shim dir; the sibling
+/// `bin/nub` doesn't exist (post-uninstall — keep running so `unshim` works); or
+/// the sibling is the SAME file as self (already relinked / never upgraded — no
+/// point exec'ing, and exec'ing self would loop).
 pub fn nub_passthrough_target() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = shim_dir().ok()?;
@@ -1099,10 +1115,31 @@ pub fn nub_passthrough_target() -> Option<PathBuf> {
     if exe.parent()?.canonicalize().ok()? != canon_dir {
         return None;
     }
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
-    // skip_file = self: a same-inode hit (official binary not yet upgraded)
-    // means there is nothing fresher to defer to.
-    scan_path("nub", &path_var, Some(&dir), Some(&exe))
+    // The official self-owned binary is the sibling of the shim dir: the shim dir
+    // is `<install>/shims`, so `<install>/bin/nub` is the binary the shims track.
+    let official = dir.parent()?.join("bin").join(nub_exe_name());
+    if !is_executable(&official) {
+        return None;
+    }
+    // Same file as self → the shim already points at the official binary (the
+    // post-relink steady state). Run self rather than exec a copy of ourselves.
+    if same_file(&exe, &official) {
+        return None;
+    }
+    Some(official)
+}
+
+/// The on-disk file name of the `nub` executable for this platform — `nub` on
+/// Unix, `nub.exe` on Windows.
+fn nub_exe_name() -> &'static str {
+    #[cfg(windows)]
+    {
+        "nub.exe"
+    }
+    #[cfg(unix)]
+    {
+        "nub"
+    }
 }
 
 /// The on-disk spellings to probe per PATH dir. Windows additionally probes

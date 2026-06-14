@@ -595,19 +595,22 @@ fn empty_path_entry_with_cwd_at_the_shim_does_not_loop() {
 }
 
 #[test]
-fn nub_from_the_shim_dir_defers_to_the_real_nub_on_path() {
+fn nub_from_the_shim_dir_defers_to_the_sibling_official_binary() {
     // Post-`nub pm shim`, ~/.nub/shims is first on PATH and carries a `nub`
-    // hardlink. After an upgrade swaps the official binary, that hardlink
-    // still pins the OLD bytes — invoked as `nub`, the shim-dir copy must
-    // re-exec the real (different-inode) nub found past the shim dir, or
-    // upgrades never take effect (including the `nub pm shim` re-link itself).
+    // hardlink. After a self-owned upgrade swaps the official binary
+    // (~/.nub/bin/nub, a NEW inode), that shim hardlink still pins the OLD
+    // bytes — invoked as `nub`, the shim-dir copy must re-exec the SIBLING
+    // official binary (~/.nub/bin/nub), or upgrades never take effect
+    // (including the `nub pm shim` re-link itself).
     let home = tmp("nub-passthrough");
-    let shims = home.join(".nub").join("shims");
+    let dotnub = home.join(".nub");
+    let shims = dotnub.join("shims");
     std::fs::create_dir_all(&shims).unwrap();
     let shim_nub = shim_link(&shims, "nub");
-    // The "freshly upgraded" official nub: a fake that proves it ran (a real
-    // upgraded binary would be a different inode just the same).
-    let bin = home.join("bin");
+    // The "freshly upgraded" official nub at the REAL self-owned location:
+    // ~/.nub/bin/nub. A fake proves it ran (a real upgraded binary is a
+    // different inode from the stale shim link just the same).
+    let bin = dotnub.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     let official = fake_pm(&bin, "nub");
 
@@ -625,11 +628,14 @@ fn nub_from_the_shim_dir_defers_to_the_real_nub_on_path() {
     assert_eq!(
         stdout,
         format!("FAKE:{}:pm cache\n", official.display()),
-        "the shim-dir nub must exec the real nub with argv intact"
+        "the shim-dir nub must exec the sibling ~/.nub/bin/nub with argv intact"
     );
 
-    // Post-uninstall (no other nub anywhere): the shim-dir nub runs ITSELF —
-    // `nub pm unshim` must keep working with the official binary gone.
+    // Post-uninstall (the sibling official binary gone): the shim-dir nub runs
+    // ITSELF — `nub pm unshim` must keep working with the official binary gone.
+    // Remove the sibling so there's nothing to defer to (the real uninstall
+    // state: ~/.nub/bin is wiped but a shim hardlink can still be invoked).
+    std::fs::remove_file(&official).unwrap();
     let path_var = std::env::join_paths([shims.clone()]).unwrap();
     let (_, stderr, code) = run(
         &shim_nub,
@@ -645,6 +651,70 @@ fn nub_from_the_shim_dir_defers_to_the_real_nub_on_path() {
         "unshim must work from the shim-dir nub alone; stderr:\n{stderr}"
     );
     assert!(!shims.exists(), "the shim dir is removed");
+}
+
+#[test]
+fn shim_nub_never_defers_to_a_foreign_nub_lower_on_path() {
+    // Regression (2026-06-13): a self-owned upgrade to a new version succeeded
+    // and relinked the shims, but a stale FOREIGN nub (npm-global / homebrew /
+    // dev tree) lower on PATH was being exec'd instead — `nub upgrade` reported
+    // success while `nub -v` showed the old version. The passthrough must target
+    // the sibling ~/.nub/bin/nub ONLY, never "the next nub anywhere on PATH".
+    //
+    // Steady state being modeled: after the post-upgrade re-link, the shim
+    // hardlink and ~/.nub/bin/nub share ONE inode (the same bytes). A foreign
+    // nub with DIFFERENT bytes sits further down PATH. The shim must run the
+    // sibling (here: run itself, since shim == sibling inode), NOT the foreign
+    // binary — exec'ing self when they're the same file is a no-op pass-through,
+    // so the real nub command actually executes.
+    let home = tmp("nub-no-foreign");
+    let dotnub = home.join(".nub");
+    let shims = dotnub.join("shims");
+    let bin = dotnub.join("bin");
+    std::fs::create_dir_all(&shims).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+
+    // The official binary the shims track: a real nub hardlink in ~/.nub/bin.
+    let official = bin.join("nub");
+    std::fs::hard_link(nub_binary(), &official)
+        .or_else(|_| std::os::unix::fs::symlink(nub_binary(), &official))
+        .unwrap();
+    // The shim hardlink shares the official inode (post-relink steady state):
+    // link it FROM the official so they're the same file.
+    let shim_nub = shims.join("nub");
+    std::fs::hard_link(&official, &shim_nub)
+        .or_else(|_| std::os::unix::fs::symlink(&official, &shim_nub))
+        .unwrap();
+
+    // A FOREIGN nub lower on PATH whose bytes differ — it prints a marker. If
+    // the passthrough ever exec'd it, the marker would appear in stdout.
+    let foreign_dir = home.join("foreign");
+    std::fs::create_dir_all(&foreign_dir).unwrap();
+    let foreign = fake_pm(&foreign_dir, "nub");
+
+    let path_var =
+        std::env::join_paths([shims.clone(), bin.clone(), foreign_dir.clone()]).unwrap();
+    // `nub --version` exercises a code path that, pre-fix, the shim handed off
+    // to the foreign binary before any flag parsing.
+    let (stdout, stderr, code) = run(
+        &shim_nub,
+        &["--version"],
+        &home,
+        &[
+            ("PATH", path_var.to_str().unwrap()),
+            ("HOME", home.to_str().unwrap()),
+        ],
+    );
+    assert_eq!(code, 0, "stderr:\n{stderr}");
+    assert!(
+        !stdout.contains(&format!("FAKE:{}", foreign.display())),
+        "the shim must NEVER exec the foreign nub; got stdout:\n{stdout}"
+    );
+    // Positive: the real nub's --version ran (bare `v<semver>` on stdout).
+    assert!(
+        stdout.trim_start().starts_with('v'),
+        "the real nub --version must run (bare v<semver>); got stdout:\n{stdout}"
+    );
 }
 
 #[test]
