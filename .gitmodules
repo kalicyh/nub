@@ -4,4 +4,4 @@
 [submodule "vendor/aube"]
 	path = vendor/aube
 	url = https://github.com/nubjs/aube
-	branch = nub-integration
+	branch = nub-fork
