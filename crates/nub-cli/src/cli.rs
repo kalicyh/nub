@@ -3323,10 +3323,7 @@ fn npm_upgrade_command_invocation(target: &str) -> std::process::Command {
 /// the installer did. The base is [`release_download_base`] so the test seam can
 /// redirect it to a local fixture; unset → the canonical github.com URL.
 fn tarball_url(version: &str, target: &str) -> String {
-    format!(
-        "{}/v{version}/nub-{target}.tar.gz",
-        release_download_base()
-    )
+    format!("{}/v{version}/nub-{target}.tar.gz", release_download_base())
 }
 
 /// SHA-256 checksum sidecar URL for the tarball. release.yml publishes a

@@ -692,8 +692,7 @@ fn shim_nub_never_defers_to_a_foreign_nub_lower_on_path() {
     std::fs::create_dir_all(&foreign_dir).unwrap();
     let foreign = fake_pm(&foreign_dir, "nub");
 
-    let path_var =
-        std::env::join_paths([shims.clone(), bin.clone(), foreign_dir.clone()]).unwrap();
+    let path_var = std::env::join_paths([shims.clone(), bin.clone(), foreign_dir.clone()]).unwrap();
     // `nub --version` exercises a code path that, pre-fix, the shim handed off
     // to the foreign binary before any flag parsing.
     let (stdout, stderr, code) = run(

@@ -568,7 +568,11 @@ fn version_flag_never_spawns_node_even_when_node_is_slow() {
     std::fs::set_permissions(&fake_node, perms).unwrap();
 
     // A pin the fake node satisfies, so discovery would pick it.
-    std::fs::write(proj.join("package.json"), r#"{"engines":{"node":">=22.0.0"}}"#).unwrap();
+    std::fs::write(
+        proj.join("package.json"),
+        r#"{"engines":{"node":">=22.0.0"}}"#,
+    )
+    .unwrap();
 
     // PRE-WARM the discovery cache for the fake node (path + current mtime), so a
     // spawn-free `--version` can report its version without ever running it.

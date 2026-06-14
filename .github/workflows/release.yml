@@ -21,6 +21,14 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+# Metadata-primer embed (the time-bearing seed that kills the cold-install cliff).
+# The primer-related env vars (AUBE_PRIMER_TOP / AUBE_PRIMER_VERSION_CAP /
+# AUBE_REQUIRE_PRIMER) are scoped to the `primer` job (generation) and the `build`
+# job (embed), NOT to this workflow-level env — deliberately, so the `test` and
+# `conformance` jobs (which also `cargo build` nub-cli) are NOT forced to generate
+# a primer or fail under the require guard, keeping them off the registry's
+# critical path the way they were before this fix.
+
 jobs:
   verify:
     name: Verify version consistency
@@ -75,6 +83,83 @@ jobs:
             SEL=$(echo "$FULL" | jq -c '.')
           fi
           echo "matrix={\"include\":$SEL}" >> "$GITHUB_OUTPUT"
+
+  primer:
+    name: Generate metadata primer (once, shared to all builds)
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Must match what vendor/aube/crates/aube-resolver/build.rs computes for a
+    # `--release` build, because TOP/CAP form the on-disk primer filename
+    # (`primer-top{TOP}-v{CAP}-s{SCHEMA}.rkyv.{zst,json}`) the build jobs' build.rs
+    # looks for. TOP=2000 == build.rs RELEASE_TOP; CAP=100 == build.rs DEFAULT_VERSION_CAP.
+    env:
+      AUBE_PRIMER_TOP: "2000"
+      AUBE_PRIMER_VERSION_CAP: "100"
+    steps:
+      - uses: actions/checkout@v4
+      # The generate script + build.rs (for the schema constant) live in the
+      # vendored aube submodule. Single-path init keeps tests/node-suite out.
+      - name: Init vendor/aube submodule
+        run: git submodule update --init vendor/aube
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      # === produce-the-blob step (ISOLATED on purpose) ===========================
+      # This is the ONLY place the primer's SOURCE is decided. Today it generates
+      # from the public registry via the committed generate-primer.mjs (tokenless).
+      # To later pull the blob from a PRIVATE repo's release (nubjs/nub-primer),
+      # swap ONLY this step's body for a `gh release download` (+ its token) — the
+      # downstream contract is unchanged: it must leave a file named
+      # primer-top${AUBE_PRIMER_TOP}-v${AUBE_PRIMER_VERSION_CAP}-s<schema>.rkyv.json
+      # under vendor/aube/crates/aube-resolver/data/ for the artifact upload below.
+      # build.rs's `source.with_extension("json")` branch compresses that JSON
+      # into the embedded rkyv+zstd blob, so no node is needed in the consumers.
+      - name: Generate metadata primer
+        id: primer
+        shell: bash
+        # Retry the whole generation a few times so a transient registry hiccup
+        # (the script also retries each request internally) doesn't fail the
+        # release. The `-s<schema>` suffix MUST match build.rs's PRIMER_DATA_SCHEMA
+        # so the consumers' build.rs picks the artifact up directly instead of
+        # falling back to spawning node (which would fail in the cross containers).
+        run: |
+          cd vendor/aube
+          schema=$(grep -E '^const PRIMER_DATA_SCHEMA: u32 = [0-9]+;' \
+            crates/aube-resolver/build.rs | awk -F'= ' '{print $2}' | tr -d ';')
+          if [ -z "$schema" ]; then
+            echo "::error::failed to parse PRIMER_DATA_SCHEMA from vendor/aube/crates/aube-resolver/build.rs"
+            exit 1
+          fi
+          out="crates/aube-resolver/data/primer-top${AUBE_PRIMER_TOP}-v${AUBE_PRIMER_VERSION_CAP}-s${schema}.rkyv.json"
+          attempt=0
+          until node scripts/generate-primer.mjs \
+                  --top "$AUBE_PRIMER_TOP" \
+                  --versions "$AUBE_PRIMER_VERSION_CAP" \
+                  --out "$out"; do
+            attempt=$((attempt + 1))
+            if [ "$attempt" -ge 3 ]; then
+              echo "::error::generate-primer.mjs failed after $attempt attempts"
+              exit 1
+            fi
+            echo "--- generate attempt $attempt failed; retrying in 30s ---"
+            sleep 30
+          done
+          # Fail loud here too (don't wait for build.rs): a syntactically-valid but
+          # empty/near-empty primer must never reach the builds under the require guard.
+          bytes=$(wc -c < "$out")
+          if [ "$bytes" -lt 100000 ]; then
+            echo "::error::generated primer is suspiciously small ($bytes bytes) — refusing to ship a degraded primer"
+            exit 1
+          fi
+          echo "primer $out is $bytes bytes"
+          echo "path=vendor/aube/$out" >> "$GITHUB_OUTPUT"
+      - name: Upload metadata primer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-primer
+          path: ${{ steps.primer.outputs.path }}
+          if-no-files-found: error
 
   test:
     name: Test gate (cargo test + compat suite)
@@ -168,8 +253,20 @@ jobs:
 
   build:
     name: Build (${{ matrix.platform }})
-    needs: verify
+    needs: [verify, primer]
     runs-on: ${{ matrix.runner }}
+    # Primer embed (see the `primer` job + the "Download metadata primer" step):
+    # TOP/CAP select which downloaded primer-top{TOP}-v{CAP}-s<schema> file
+    # vendor/aube's build.rs embeds; AUBE_REQUIRE_PRIMER=1 makes build.rs FAIL LOUD
+    # on an empty/missing primer instead of silently shipping write_package_blob(&[])
+    # (the 0.0.37 bug). For the cross targets these are forwarded into the cross
+    # Docker container by the root Cross.toml passthrough — without that entry the
+    # require guard never fires inside the container. Scoped to this job (not the
+    # workflow env) so the test/conformance jobs stay off the registry critical path.
+    env:
+      AUBE_PRIMER_TOP: "2000"
+      AUBE_PRIMER_VERSION_CAP: "100"
+      AUBE_REQUIRE_PRIMER: "1"
     strategy:
       fail-fast: false
       # Built as data by the `verify` job so a linux_only debug dispatch can drop the
@@ -184,6 +281,20 @@ jobs:
       # nodejs/node clone) stays excluded from the build runners.
       - name: Init vendor/aube submodule
         run: git submodule update --init vendor/aube
+
+      # Pull the metadata primer generated ONCE by the `primer` job into the dir
+      # vendor/aube/crates/aube-resolver/build.rs reads. It lands as the
+      # `primer-top{TOP}-v{CAP}-s<schema>.rkyv.json` file build.rs's
+      # `source.with_extension("json")` branch compresses+embeds — so EVERY
+      # platform (including the node-LESS cross containers for musl/arm) embeds
+      # the real primer instead of the empty fallback. With AUBE_REQUIRE_PRIMER=1
+      # (workflow env), a missing artifact here fails the build loud rather than
+      # silently shipping an empty primer (the 0.0.37 bug).
+      - name: Download metadata primer
+        uses: actions/download-artifact@v4
+        with:
+          name: metadata-primer
+          path: vendor/aube/crates/aube-resolver/data
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -217,6 +328,37 @@ jobs:
             cargo build --release -p nub-cli --target ${{ matrix.target }}
           fi
         shell: bash
+
+      # CI GATE: the built binary must embed a NON-EMPTY metadata primer.
+      # vendor/aube's build.rs generates a PRIMER_INDEX of package-NAME string
+      # literals (crates/aube-resolver/src/primer.rs `include!`s it and references
+      # it at runtime, so the names survive release stripping in the binary's
+      # rodata). An EMPTY primer => empty index => none of these names are present.
+      # This is exactly the 0.0.37 failure (cross containers shipped write_package_blob(&[]));
+      # this gate would have caught it. It mirrors the addon-presence gate in the
+      # assemble step and runs per-target, so a degraded cross build fails HERE
+      # rather than silently shipping. (Enabling this BEFORE the artifact-share fix
+      # would correctly fail the cross builds — it lands together with the fix.)
+      - name: Gate — binary embeds a non-empty primer
+        shell: bash
+        run: |
+          case "${{ matrix.platform }}" in
+            win32-*) BIN="target/${{ matrix.target }}/release/nub.exe" ;;
+            *)       BIN="target/${{ matrix.target }}/release/nub" ;;
+          esac
+          # A handful of packages near-certain to be in any "top npm packages"
+          # primer; require at least one to be embedded as a string literal in the
+          # binary's rodata (the PRIMER_INDEX names survive release stripping). An
+          # EMPTY primer => empty index => none present. `grep -a` scans the binary
+          # as text, so this needs no `strings` binary (not guaranteed on the
+          # Windows runner). The patterns are distinctive enough not to collide
+          # with unrelated rodata.
+          if grep -aqE 'react-dom|@babel/core|typescript|@types/node' "$BIN"; then
+            echo "✓ ${{ matrix.platform }}: binary embeds a non-empty primer"
+          else
+            echo "::error::${{ matrix.platform }}: binary does NOT embed a populated primer — the primer index is empty (the 0.0.37 cross-build bug). The 'Download metadata primer' step or the AUBE_* cross passthrough is broken."
+            exit 1
+          fi
 
       - name: Build nub-native addon
         run: |
