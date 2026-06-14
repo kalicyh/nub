@@ -34,24 +34,35 @@ function emit(ctx: string): never {
 
 try {
   const dir = process.env.CLAUDE_PROJECT_DIR ?? ".";
-  const board = readFileSync(join(dir, ".fray/_board.md"), "utf8");
+  // autonomous_mode lives in .fray/config.yml now — the board/status view is COMPUTED
+  // by `node scripts/fray/index.mjs`, never stored.
+  const cfg = readFileSync(join(dir, ".fray/config.yml"), "utf8");
+  const mode = cfg.match(/^autonomous_mode:\s*(\S+)/m)?.[1] ?? "unknown";
 
-  const fm = board.match(/^---\n([\s\S]*?)\n---/);
-  const mode = fm?.[1].match(/^autonomous_mode:\s*(\S+)/m)?.[1] ?? "unknown";
-
-  // fray: thread pulse from each .fray/<thread>.md frontmatter status.
-  const counts: Record<string, number> = {};
+  // fray: thread pulse + per-message frontmatter VALIDATION (so a malformed thread
+  // surfaces immediately, not whenever I happen to look). STATUS must stay in sync with
+  // scripts/fray/index.mjs (the authoritative `--validate`). Unrecognized fields are
+  // allowed by design — only required fields + the status vocab are checked.
+  const STATUS = ["todo", "active", "blocked", "needs-decision", "done"];
+  const pending: string[] = []; // `<slug>[status]` for every non-done thread — compact, one line, names included so a stalled thread is caught BY NAME (not just a count). Full detail stays in `node scripts/fray/index.mjs`, NOT injected per-message.
+  const errors: string[] = [];
   try {
     for (const f of readdirSync(join(dir, ".fray"))) {
-      if (!f.endsWith(".md") || f === "_board.md") continue;
-      const st = readFileSync(join(dir, ".fray", f), "utf8").match(/^status:\s*(\S+)/m)?.[1] ?? "?";
-      counts[st] = (counts[st] ?? 0) + 1;
+      if (!f.endsWith(".md") || f.startsWith("_")) continue; // `_`-prefixed = non-thread meta
+      const id = f.replace(/\.md$/, "");
+      const src = readFileSync(join(dir, ".fray", f), "utf8");
+      const st = src.match(/^status:\s*(\S+)/m)?.[1];
+      if (!/^title:\s*\S/m.test(src)) errors.push(`${id}: missing title`);
+      if (!st) errors.push(`${id}: missing status`);
+      else if (!STATUS.includes(st)) errors.push(`${id}: invalid status "${st}"`);
+      if (st !== "done") pending.push(`${id}[${st ?? "?"}]`);
     }
   } catch {
-    /* no .fray dir yet → empty pulse */
+    /* no .fray dir yet */
   }
-  const pulse = Object.entries(counts).map(([s, c]) => `${c} ${s}`).join(" · ") || "none";
-  const status = `threads (.fray): ${pulse}.`;
+  const status =
+    `FRAY — ${pending.length} pending: ${pending.join(", ") || "none"}. Advance or reconcile EACH this turn; if you went deep on ONE thread (or on fray/meta plumbing), don't let the others silently stall (\`node scripts/fray/index.mjs\` for detail).` +
+    (errors.length ? `  ⚠ VALIDATION ERRORS (fix now): ${errors.join("; ")}` : "");
 
   const modeLine =
     mode === "on"

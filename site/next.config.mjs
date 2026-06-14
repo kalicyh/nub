@@ -14,6 +14,22 @@ const config = {
       { source: '/docs/managing-node', destination: '/docs/node', permanent: true },
     ];
   },
+  // Advertise the llms.txt index on every page so crawlers/agents can
+  // auto-discover the AI-readable content without prior knowledge of the URL.
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Link',
+            value: '</llms.txt>; rel="llms-txt", </llms-full.txt>; rel="llms-full-txt"',
+          },
+          { key: 'X-Llms-Txt', value: '/llms.txt' },
+        ],
+      },
+    ];
+  },
 };
 
 export default withMDX(config);
