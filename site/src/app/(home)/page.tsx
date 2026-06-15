@@ -1266,7 +1266,7 @@ function Footer() {
               nub<span className="text-ember">.</span>
             </span>
             <p className="mt-3 text-sm leading-relaxed text-fd-muted-foreground">
-              An all-in-one toolkit for Node.js. No new runtime, no lock-in.
+              An all-in-one toolkit for Node.js.
             </p>
           </div>
           <FooterCol
