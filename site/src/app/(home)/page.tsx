@@ -471,7 +471,7 @@ import { host, port } from "./config.yaml" // named exports`}
           <Feature
             accent="ember"
             reverse
-            eyebrow="Node versions"
+            eyebrow="Node version management"
             title="Auto-installs Node, on demand"
             body={
               <>
@@ -546,7 +546,7 @@ import { host, port } from "./config.yaml" // named exports`}
 
           <Feature
             accent="ember"
-            eyebrow="Drop-in"
+            eyebrow="truly drop-in"
             title={<>Flag-for-flag compatible with <HeadingCode>node</HeadingCode></>}
             body={
               <>
@@ -951,7 +951,7 @@ const PM_MATRIX: { field: ReactNode; cells: Record<(typeof PM_COLUMNS)[number], 
     cells: { npm: 'yes', pnpm: 'yes', yarn: 'yes', bun: 'yes', nub: 'yes' },
   },
   {
-    field: <>top-level <Mono>overrides</Mono></>,
+    field: <><Mono>overrides</Mono></>,
     cells: { npm: 'yes', pnpm: 'no', yarn: 'no', bun: 'yes', nub: 'yes' },
   },
   {
@@ -1139,7 +1139,7 @@ catalog:
           <Feature
             accent="pink"
             reverse
-            eyebrow="Configuration compatibility"
+            eyebrow="Config compatibility"
             title="Mirrors your package manager's config rules"
             body={
               <>
@@ -1153,7 +1153,7 @@ catalog:
 
           <Feature
             accent="pink"
-            eyebrow="Shim"
+            eyebrow="PM shims"
             title={<>A built-in Corepack</>}
             body={
               <>
