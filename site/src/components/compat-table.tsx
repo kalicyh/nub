@@ -71,7 +71,7 @@ function StatusGlyph({ status }: { status: CompatStatus }) {
 
 export function CompatTable({ rows }: { rows: CompatRow[] }) {
   return (
-    <div className="my-6 overflow-hidden rounded-lg border border-fd-border">
+    <div className="my-6 overflow-hidden rounded-lg border border-fd-border [&_table]:my-0">
       <table className="w-full border-collapse text-left text-sm">
         <thead>
           <tr className="border-b border-fd-border bg-fd-muted/40">

@@ -179,10 +179,16 @@ pre span[style*='#6a737d'] {
   color: #8f8a80 !important;
 }
 
-/* Inline mono reads visually larger than the serif around it (mono x-height
-   runs high + wide). Pull it down and tighten it so it sits with the prose. */
+/* IBM Plex Mono against the Newsreader serif body: its x-height runs high but
+   its caps/ascenders sit short, so at the naive 0.86em the lowercase matched
+   while caps + digits looked stunted — inline code read as a visibly *smaller*,
+   broken-looking chip next to the prose (e.g. "global / builtin `.npmrc`").
+   0.9em is the optically-matched value (measured: serif cap-ascent 10.82px vs
+   mono 10.05px, x-height 7.05 vs 7.43 — balanced across caps and lowercase).
+   em-relative so it tracks the surrounding size in headings, tables, and body
+   alike. Code blocks (`pre code`) are excluded and unchanged. */
 :not(pre) > code {
-  font-size: 0.86em;
+  font-size: 0.9em;
   letter-spacing: -0.01em;
   font-variant-ligatures: none;
 }
