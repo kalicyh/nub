@@ -1,9 +1,18 @@
 ---
 title: Package runner
-description: Use nubx (or nub exec) to run a CLI from your project's node_modules/.bin, falling back to a registry fetch when it isn't installed — a drop-in for npx and pnpm dlx, an order of magnitude faster on cold start.
+description: Run a CLI from your project's installed binaries, falling back to a registry fetch when it isn't installed — a drop-in for npx and pnpm dlx, an order of magnitude faster on cold start.
 ---
 
-The `nubx` command runs a command-line tool by name: an already-installed one from `node_modules/.bin` (put there by `pnpm`, `npm`, `yarn`, or `bun`), or — when it isn't installed — one fetched from the registry on the fly. It's a drop-in for `npx` and `pnpm dlx`, local-first with a DLX fallback. For a locally-resolved bin it does the `node_modules/.bin` walk-up in Rust and exec's the resolved binary directly, so the wrapper overhead that `npx` and `pnpm exec` pay on every call (a full Node bootstrap) approximately disappears — `~17–19×` lighter on a native CLI like `esbuild`. The tool that actually runs is identical to what `npx` would run; only the wrapper gets out of the way.
+Run a command-line tool by name with `nubx`: a local bin from `node_modules/.bin` first, a registry fetch when it isn't installed. It's a drop-in for `npx` and `pnpm dlx`/`pnpm exec` — existing invocations carry over, and it accepts pnpm `exec`'s core workspace flags (`-r`, `--filter`, `--parallel`).
+
+```bash
+nubx eslint .                          # resolve from node_modules/.bin and run
+nub exec eslint .                      # alias: nub exec === nubx
+nubx --filter @org/api tsc --build     # run a local bin across a filtered workspace
+nub dlx -p cowsay -c 'cowsay hi | tr a-z A-Z'  # one-off tool, no install, shell pipeline
+```
+
+For a locally-resolved bin, `nubx` does the `node_modules/.bin` walk-up in Rust and exec's the resolved binary directly, so the wrapper overhead that `npx` and `pnpm exec` pay on every call — a full Node bootstrap — approximately disappears: roughly 17–19× lighter on a native CLI like `esbuild`. The tool that actually runs is identical to what `npx` would run; only the wrapper gets out of the way.
 
 This page is task-oriented. For the bigger picture see the [Introduction](/docs); for running files and scripts see [running files](/docs/runtime) and [running scripts](/docs/run).
 
@@ -28,30 +37,7 @@ nubx prisma migrate dev --name init
 nubx vitest run --coverage
 ```
 
-## `nub exec`
-
-Though `nubx` is a separate binary entry point, it's an exact alias for `nub exec` — same code path, same resolution, same behavior. Use whichever reads better in your context; `nubx` is shorter for the command line and shebangs, `nub exec` is natural inside a longer `nub` invocation.
-
-```bash
-nubx prettier --write .
-nub exec prettier --write .   # identical
-```
-
-## How bins resolve
-
-Resolution walks `node_modules/.bin/<name>` starting from your current directory and moving upward through ancestor `node_modules/.bin` directories — the same chain `nub run` builds for `PATH`. In a monorepo that means the package member's own `.bin` is checked first, then the workspace root, then any further ancestors. This matches how `npm`, `pnpm`, `yarn`, and `bun` resolve bins, so a tool installed at the workspace root is reachable from any member.
-
-```bash
-# from packages/api in a monorepo:
-#   1. packages/api/node_modules/.bin/<name>
-#   2. <workspace-root>/node_modules/.bin/<name>
-#   3. further ancestor node_modules/.bin directories
-nubx tsc --build
-```
-
-The resolved entry runs the right way for what it is: a Node script (a `#!…node` shebang or `.js` / `.mjs` / `.cjs`) runs through augmented `node`, a Windows `.cmd` / `.bat` via `cmd /C`, a `.ps1` via PowerShell, and anything else (a native binary, or a non-node shebang like `#!/bin/sh`) execs directly.
-
-## `--node`
+## --node
 
 By default `nubx` runs the tool under Nub's augmentation — the PATH shim makes any `node` the tool spawns resolve back to Nub, with TypeScript transpilation and polyfills active. Pass `--node` to turn that off for the invocation: the bin's `#!/usr/bin/env node` shebang resolves to your real Node binary, no `--import` preload is added, and no experimental flags are injected. Reach for it when a tool's shebang chain needs byte-exact plain Node, when you're bisecting a Nub-vs-Node issue, or when CI wants exact Node runtime behavior with `nubx`'s resolution.
 
@@ -62,7 +48,7 @@ nub exec --node tsc --noEmit
 
 What still happens under `--node`: the workspace-aware `node_modules/.bin` walk-up, the registry DLX fallback below, and `nubx`'s own CLI machinery. Only the runtime augmentation is disabled.
 
-## When a tool isn't installed
+## Download and execute
 
 When a bin isn't on the `node_modules/.bin` chain, `nubx` falls back to a registry fetch — it resolves the package, installs it into a throwaway project, and runs it, then drops the scratch dir. This is the same local-first-then-DLX model as `npx` and `pnpm dlx`; nub is a complete package manager, so it does the fetch itself rather than shelling out to a foreign PM. Following `pnpm dlx` semantics, there is no interactive confirm-prompt — it just fetches and runs.
 
@@ -109,16 +95,6 @@ Yarn Berry's Plug'n'Play mode replaces `node_modules/.bin/` with a runtime resol
 ```yaml
 # .yarnrc.yml
 nodeLinker: node-modules
-```
-
-## Drop-in for `pnpm exec`
-
-Existing `pnpm exec` invocations carry over — `nubx` and `nub exec` accept pnpm `exec`'s core workspace flags (`-r`, `--filter`, `--parallel`), and `nub dlx` matches `pnpm dlx` for one-off tools you don't want installed.
-
-```bash
-nubx --filter @org/api tsc --build            # run a local bin across a filtered workspace
-nub exec -r --parallel tsc --noEmit           # every member, no topo ordering
-nub dlx -p cowsay -c 'cowsay hi | tr a-z A-Z' # one-off tool, no install, shell pipeline
 ```
 
 ## Flag differences
