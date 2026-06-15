@@ -1010,6 +1010,11 @@ fn augmentation_to_lifecycle_overlay(
     if let Some(node_path) = &aug.node_path {
         overlay.push((OsString::from("NODE_PATH"), node_path.clone()));
     }
+    // localStorage-neutralize signal for dependency build scripts' node children
+    // (webstorage flag-needed band, no user --localstorage-file); preload reads + deletes.
+    aug.apply_localstorage_env(|k, v| {
+        overlay.push((OsString::from(k), OsString::from(v)));
+    });
     // Pin npm_node_execpath to the provisioned Node — the ABI fix. Independent
     // of the shim: it flows even on the no-shim path so node-gyp never falls
     // back to ambient. (npm_node_execpath stays the REAL binary, not the shim:
@@ -1885,6 +1890,7 @@ mod tests {
             node_options: Some("--require=/rt/preload.cjs".to_string()),
             shim_dir: Some("/shim".to_string()),
             node_path: Some(OsString::from("/rt/node_path")),
+            neutralize_localstorage: true,
         };
         let (overlay, prepends) = augmentation_to_lifecycle_overlay(&aug, "/pinned/bin/node");
 
@@ -1918,6 +1924,11 @@ mod tests {
             vec![std::path::PathBuf::from("/shim")],
             "shim dir leads PATH so a bare `node` in a build script is augmented"
         );
+        assert_eq!(
+            find("__NUB_NEUTRALIZE_LOCALSTORAGE").as_deref(),
+            Some("1"),
+            "neutralize signal must flow to build-script node children when set"
+        );
     }
 
     /// No shim set up (re-entrant / broken install) → no NODE override and no
@@ -1931,6 +1942,7 @@ mod tests {
             node_options: None,
             shim_dir: None,
             node_path: None,
+            neutralize_localstorage: false,
         };
         let (overlay, prepends) = augmentation_to_lifecycle_overlay(&aug, "/pinned/bin/node");
         assert!(prepends.is_empty());

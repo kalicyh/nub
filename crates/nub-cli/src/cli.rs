@@ -2469,6 +2469,13 @@ fn build_script_command(
     if let Some(node_path) = aug.as_ref().and_then(|a| a.node_path.as_ref()) {
         command.env("NODE_PATH", node_path);
     }
+    // localStorage-neutralize signal for the script subtree's node children (webstorage
+    // flag-needed band, no user --localstorage-file): the preload reads + deletes it.
+    if let Some(aug) = aug.as_ref() {
+        aug.apply_localstorage_env(|k, v| {
+            command.env(k, v);
+        });
+    }
 
     for (k, v) in &env_vars {
         command.env(k, v);
@@ -3109,6 +3116,11 @@ fn apply_exec_augmentation(cmd: &mut std::process::Command, cwd: &Path) {
         .node_shim_exe()
         .unwrap_or_else(|| std::ffi::OsString::from(node.path.as_str()));
     cmd.env("NODE", node_env);
+    // localStorage-neutralize signal (webstorage flag-needed band, no user
+    // --localstorage-file); applied before the partial moves of aug below.
+    aug.apply_localstorage_env(|k, v| {
+        cmd.env(k, v);
+    });
     if let Some(node_options) = aug.node_options {
         cmd.env("NODE_OPTIONS", node_options);
     }

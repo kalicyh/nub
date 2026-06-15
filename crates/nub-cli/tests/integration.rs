@@ -989,10 +989,12 @@ fn node_compat_flag_disables_augmentation() {
 /// `--experimental-webstorage` on the 22.4–24 flag-needed band (and 25+ has it
 /// native), so `sessionStorage` is a working global with no opt-in. localStorage
 /// stays the user's explicit opt-in: nub NEVER synthesizes a `--localstorage-file`,
-/// so without one the store never materializes (on the band the `localStorage`
-/// getter is installed but throws `ERR_INVALID_ARG_VALUE` on access; on native 25+
-/// it returns `undefined`). A user who passes their own `--localstorage-file=<path>`
-/// gets a working, persistent store, and nub never stands one up on its own.
+/// so without one the store never materializes. With no file, nub NEUTRALIZES the
+/// `localStorage` global so it reads `undefined` (matching Node 25+'s clean shape)
+/// instead of Node's throwing getter on the band — so `typeof localStorage ===
+/// "undefined"` feature-detection is safe and nothing throws (the maintainer, 2026-06-15).
+/// A user who passes their own `--localstorage-file=<path>` gets a working,
+/// persistent store, and nub never stands one up on its own.
 #[test]
 fn sessionstorage_works_by_default_localstorage_needs_user_file() {
     if !node_at_least((22, 4, 0)) {
@@ -1007,9 +1009,13 @@ fn sessionstorage_works_by_default_localstorage_needs_user_file() {
     let user_store = dir.join("mine.sqlite");
 
     // sessionStorage needs only the flag (no file) — works on the whole 22.4+ range.
+    // Also assert localStorage is the NEUTRALIZED `undefined` shape (no throw): on the
+    // band nub replaces Node's throwing getter so `typeof localStorage` is "undefined"
+    // and feature-detection works. `typeof` is read FIRST — on the raw band even
+    // `typeof localStorage` throws, so this line proves the neutralize ran.
     std::fs::write(
         dir.join("probe.js"),
-        "sessionStorage.setItem('k', 'v'); console.log('SS:' + sessionStorage.getItem('k'));",
+        "console.log('LS:' + typeof localStorage); sessionStorage.setItem('k', 'v'); console.log('SS:' + sessionStorage.getItem('k'));",
     )
     .unwrap();
     std::fs::write(
@@ -1044,6 +1050,14 @@ fn sessionstorage_works_by_default_localstorage_needs_user_file() {
     assert!(
         probe_out.contains("SS:v"),
         "sessionStorage must work out of the box (no --localstorage-file); got {probe_out:?} stderr: {probe_err:?}"
+    );
+    // On the flag-needed band (22.4–24), nub neutralizes the throwing getter →
+    // `typeof localStorage === "undefined"`. On native 25+ Node already returns
+    // undefined for an unconfigured localStorage, so "LS:undefined" holds across the
+    // whole supported range (no throw either way).
+    assert!(
+        probe_out.contains("LS:undefined"),
+        "localStorage must read `undefined` (not throw) with no --localstorage-file; got {probe_out:?} stderr: {probe_err:?}"
     );
     // nub must NOT have created a localStorage store of its own under the cache.
     assert!(

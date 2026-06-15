@@ -32,6 +32,33 @@ const __require = createRequire(__filename);
 function installSyncPolyfills(preloaded) {
   preloaded = preloaded || {};
 
+  // ── Web Storage: neutralize the throwing localStorage getter ────────
+  // When nub injects `--experimental-webstorage` on the 22.4–24 band AND the user
+  // did NOT pass `--localstorage-file`, Node installs a `localStorage` global that
+  // is a getter THROWING `ERR_INVALID_ARG_VALUE` on ANY access — even
+  // `typeof localStorage` throws, so feature-detection is impossible and the throw
+  // can surface before user code expects it. The spawn layer signals this case via
+  // the internal `__NUB_NEUTRALIZE_LOCALSTORAGE` env var (set iff flag-injected ∧
+  // no user file). Replace the throwing getter with a plain `undefined` value —
+  // matching Node 25+'s clean shape — so `typeof localStorage === "undefined"` is
+  // true and no throw occurs; `sessionStorage`, which needs only the flag, keeps
+  // working. This runs in the preload BEFORE any user code, so the throwing getter
+  // is never observed. When the user passes `--localstorage-file`, the env var is
+  // absent and `localStorage` works normally (we do not touch it). Delete the env
+  // var after reading so it doesn't leak to grandchild processes. The descriptor is
+  // configurable+writable so user code can still assign its own `localStorage`.
+  if (process.env.__NUB_NEUTRALIZE_LOCALSTORAGE) {
+    delete process.env.__NUB_NEUTRALIZE_LOCALSTORAGE;
+    try {
+      Object.defineProperty(globalThis, "localStorage", {
+        value: undefined,
+        configurable: true,
+        writable: true,
+        enumerable: false,
+      });
+    } catch { /* descriptor non-configurable on this runtime: leave Node's behavior */ }
+  }
+
   // ── reportError (WinterTC min-common-API, not in any Node) ──────────
   // Defined NON-ENUMERABLE so it is invisible to `Object.keys(globalThis)` /
   // for-in / structured-clone-of-keys — that invisibility-to-enumeration IS the
