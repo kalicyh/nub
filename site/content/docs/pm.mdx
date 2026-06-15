@@ -55,14 +55,20 @@ $ nub pm use pnpm
 Fetching pnpm 11.5.3 (4 MB)...
 using pnpm@11.5.3
   package.json: packageManager = pnpm@11.5.3 (+sha512)
+  package.json: devEngines.packageManager = { name: "pnpm", version: "^11.5.3", onFail: "warn" }
   pnpm-lock.yaml: written (converted from package-lock.json)
   package-lock.json: removed (migrated)
 ```
 
 What it writes:
 
-- **`packageManager`** — the exact version plus a `+sha512` hash computed from the verified tarball. This is what corepack, pnpm, and turbo execute, and `use` is the only Nub command that writes it.
-- **The lockfile, in the new manager's format.** An existing lockfile in another format is *converted* — resolution state preserved — and the old file removed. A lockfile already in the target format is left untouched; if there's no lockfile yet, none is written — the next install creates it. The converted lockfile passes the real manager's frozen install (`pnpm install --frozen-lockfile`, `npm ci`, `bun install --frozen-lockfile`) byte-for-byte.
+- **`package.json#/packageManager`** — the exact version plus a `+sha512` hash computed from the verified tarball. This is what corepack, pnpm, and turbo execute, and `use` is the only Nub command that writes it.
+- **`package.json#/devEngines/packageManager`** — `{ name, version: "^<exact>", onFail: "warn" }`, the range-and-policy form npm and pnpm enforce natively, written beside the exact pin so the two can't drift.
+- **The lockfile, in the new manager's format.** An existing lockfile in another format is *converted* — resolution state preserved — and the old file removed. A lockfile already in the target format is left untouched; if there's no lockfile yet, none is written — the next install creates it. The converted lockfile passes the active manager's frozen install (`pnpm install --frozen-lockfile`, etc.) byte-for-byte.
+
+<Callout title="Config is not migrated">
+Switching managers converts the lockfile, not your configuration. The `.npmrc`, any `pnpm.*` fields, `pnpm-workspace.yaml` settings, and other manager-specific config stay exactly as they are — Nub does not translate them into the new manager's dialect. Carry over whatever the new manager needs yourself.
+</Callout>
 
 Every file written or removed is named in the output; rerunning is a no-op. The refusals, all before anything is written: multiple foreign-format lockfiles (remove the stale ones first); a binary `bun.lockb` source (regenerate it as a text `bun.lock` with `bun install --save-text-lockfile` first); and `use yarn` in two cases it can't convert faithfully — an existing Berry (2+) `yarn.lock` (classic `use yarn` would downgrade the format; use `yarn set version` instead) and a graph that uses the `workspace:` protocol (classic yarn can't express it). A converting `use yarn` is otherwise fine — Nub writes a classic `yarn.lock` directly. Running `use bun` writes the pin and the lockfile but doesn't provision bun.
 
