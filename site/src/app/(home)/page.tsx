@@ -1231,23 +1231,67 @@ function FinalCta() {
   );
 }
 
+/* A footer link column: a small heading + a list of internal/external links. */
+function FooterCol({ title, links }: { title: string; links: [label: string, href: string][] }) {
+  return (
+    <div>
+      <p className="text-sm font-medium text-fd-foreground">{title}</p>
+      <ul className="mt-4 space-y-2.5">
+        {links.map(([label, href]) => (
+          <li key={href}>
+            {href.startsWith('http') ? (
+              <a href={href} className="text-sm text-fd-muted-foreground hover:text-fd-foreground">
+                {label}
+              </a>
+            ) : (
+              <Link href={href} className="text-sm text-fd-muted-foreground hover:text-fd-foreground">
+                {label}
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Footer() {
   const year = new Date().getFullYear();
   return (
-    <footer className="border-fd-border">
-      <Container className="py-10">
-        <div className="flex flex-col items-center justify-between gap-4 text-sm text-fd-muted-foreground sm:flex-row">
-          <span className="font-display text-base text-fd-foreground">
-            nub<span className="text-ember">.</span>
-          </span>
-          <div className="flex items-center gap-6">
-            <Link href="/docs" className="hover:text-fd-foreground">Docs</Link>
-            <Link href="/blog" className="hover:text-fd-foreground">Blog</Link>
-            <a href="https://github.com/nubjs/nub" className="hover:text-fd-foreground">GitHub</a>
-            <a href="https://github.com/nubjs/nub/blob/main/LICENSE" className="hover:text-fd-foreground">License</a>
+    <footer className="border-t border-fd-border">
+      <Container className="py-14">
+        <div className="grid gap-10 sm:grid-cols-2 md:grid-cols-[2fr_1fr_1fr]">
+          <div className="max-w-xs">
+            <span className="font-display text-lg text-fd-foreground">
+              nub<span className="text-ember">.</span>
+            </span>
+            <p className="mt-3 text-sm leading-relaxed text-fd-muted-foreground">
+              An all-in-one toolkit for Node.js. No new runtime, no lock-in.
+            </p>
           </div>
+          <FooterCol
+            title="Toolkit"
+            links={[
+              ['File runner', '/docs/files'],
+              ['Script runner', '/docs/run'],
+              ['Package runner', '/docs/nubx'],
+              ['Package manager', '/docs/pm'],
+              ['Version manager', '/docs/node'],
+              ['Watch mode', '/docs/watch'],
+            ]}
+          />
+          <FooterCol
+            title="Resources"
+            links={[
+              ['Docs', '/docs'],
+              ['Blog', '/blog'],
+              ['FAQ', '/docs/faq'],
+              ['GitHub', 'https://github.com/nubjs/nub'],
+              ['License', 'https://github.com/nubjs/nub/blob/main/LICENSE'],
+            ]}
+          />
         </div>
-        <p className="mt-6 flex items-center justify-center gap-1.5 text-xs text-fd-muted-foreground">
+        <p className="mt-12 flex items-center justify-center gap-1.5 border-t border-fd-border pt-6 text-xs text-fd-muted-foreground">
           <span>© {year} Nub</span>
           <span aria-hidden>·</span>
           <a
