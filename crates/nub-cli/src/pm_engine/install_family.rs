@@ -1017,7 +1017,10 @@ fn pnpm_lockfile_version_preflight(session: &EngineSession) -> Option<anyhow::Er
         .join(aube_lockfile::pnpm_lock_filename(&detected.dir));
     let content = std::fs::read_to_string(&path).ok()?;
     let version = parse_pnpm_lockfile_version(&content)?;
-    let major = version.split('.').next().and_then(|m| m.parse::<u64>().ok());
+    let major = version
+        .split('.')
+        .next()
+        .and_then(|m| m.parse::<u64>().ok());
     if major == Some(PNPM_SUPPORTED_LOCKFILE_MAJOR) {
         return None;
     }
@@ -1353,8 +1356,7 @@ mod tests {
         assert!(msg.contains("nub reads v9 (pnpm 9+)"), "{msg}");
         assert!(msg.contains("Re-lock under pnpm 9+"), "{msg}");
         assert!(
-            msg.contains("ERR_NUB_LOCKFILE_UNSUPPORTED_FORMAT")
-                && !msg.contains("ERR_AUBE_"),
+            msg.contains("ERR_NUB_LOCKFILE_UNSUPPORTED_FORMAT") && !msg.contains("ERR_AUBE_"),
             "code must be rebranded to nub's namespace: {msg}"
         );
 
