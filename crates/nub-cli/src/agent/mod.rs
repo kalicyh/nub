@@ -1,7 +1,9 @@
 //! `nub agent` — make AI coding agents reliably reach for nub.
 //!
-//! The command group (today: one verb, `init`) generates the artifacts that
-//! teach an agent to use `nub` instead of `node`/`npm`/`npx`. The PRIMARY
+//! The command group has two verbs: `init` (generates project-local artifacts)
+//! and `skill` (prints the evergreen skill to stdout for the agent to install
+//! itself). It teaches an agent to use `nub` instead of `node`/`npm`/`npx`. The
+//! `init` PRIMARY
 //! artifact is a SKILL (least-invasive, auto-surfacing, additive); a secondary,
 //! opt-in `AGENTS.md` stanza is offered only with explicit approval.
 //!
@@ -28,6 +30,16 @@ use prompt::{Confirm, Mode};
 /// project as the offline / no-install-step pickup path.
 const NUB_ENV_DTS: &str = include_str!("../../assets/nub-env.d.ts");
 
+/// The EVERGREEN agent skill, authored once at `site/public/skill.md` (so the same
+/// file also serves at https://nubjs.com/skill.md, like `start.md`) and embedded
+/// here so `nub agent skill` prints it offline with no network fetch. It's a thin,
+/// STABLE orientation layer that points the agent at the always-current sources
+/// (`nub --help`, https://nubjs.com/docs, https://nubjs.com/llms.txt) — self-healing
+/// even from a stale binary. It deliberately omits volatile detail (exhaustive flag
+/// lists). NOTE: the `init`-written `SKILL_MD` in artifacts.rs is a richer, separate
+/// artifact; syncing the two is a tracked follow-up.
+const SKILL_MD_EVERGREEN: &str = include_str!("../../../../site/public/skill.md");
+
 /// Entry point for `nub agent …`, dispatched from `dispatch_subcommand`.
 pub fn run(args: &[String]) -> Result<i32> {
     let verb = args.first().map(String::as_str);
@@ -37,8 +49,12 @@ pub fn run(args: &[String]) -> Result<i32> {
     }
     match verb.expect("verb present after the help/bare guard") {
         "init" => run_init(&args[1..]),
+        "skill" => {
+            print!("{SKILL_MD_EVERGREEN}");
+            Ok(0)
+        }
         other => bail!(
-            "nub agent takes a subcommand (init). Unknown verb '{other}'. \
+            "nub agent takes a subcommand (init, skill). Unknown verb '{other}'. \
              See `nub agent --help`."
         ),
     }
@@ -49,8 +65,9 @@ fn print_usage() {
         "nub agent — make AI coding agents reach for nub\n\n\
          Usage: nub agent <command>\n\n\
          Commands:\n\
-         \x20 init    set up the current project so its AI agent uses nub\n\
-         \x20         (generates a skill; offers an AGENTS.md stanza + TS types)\n\n\
+         \x20 init     set up the current project so its AI agent uses nub\n\
+         \x20          (generates a skill; offers an AGENTS.md stanza + TS types)\n\
+         \x20 skill    print nub's evergreen agent skill to stdout (install it yourself)\n\n\
          Options (init):\n\
          \x20 -y, --yes   accept every offer without prompting\n\
          \x20     --no    decline every optional offer (skill only)\n\
@@ -612,6 +629,26 @@ mod tests {
     #[test]
     fn bad_verb_errors() {
         assert!(run(&["bogus".into()]).is_err());
+    }
+
+    #[test]
+    fn skill_verb_prints_evergreen_skill_with_the_key_pointers() {
+        // `nub agent skill` prints the embedded skill and exits 0.
+        assert_eq!(run(&["skill".into()]).unwrap(), 0);
+
+        // The skill is the EVERGREEN orientation layer: it must be non-empty and
+        // carry the self-healing pointers at the always-current sources, plus the
+        // `--node` escape hatch. (We assert against the embedded const directly —
+        // it's what `run` prints verbatim.)
+        let body = SKILL_MD_EVERGREEN;
+        assert!(!body.trim().is_empty(), "skill must not be empty");
+        assert!(body.starts_with("---\n"), "skill needs YAML front matter");
+        for pointer in ["nubjs.com/docs", "nubjs.com/llms.txt", "nub --help", "--node"] {
+            assert!(
+                body.contains(pointer),
+                "evergreen skill must point the agent at `{pointer}`"
+            );
+        }
     }
 
     #[test]
