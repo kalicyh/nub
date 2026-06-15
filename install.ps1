@@ -15,7 +15,12 @@ switch ($Arch) {
 # --- Version ---
 $Version = if ($args.Count -gt 0) { $args[0] } else { "latest" }
 if ($Version -eq "latest") {
-    $Release = Invoke-RestMethod "https://api.github.com/repos/nubjs/nub/releases/latest"
+    # Authenticate the GitHub API call when a token is available: CI runners share
+    # an IP and hit the 60/hr unauthenticated rate limit (403). Real users without
+    # GITHUB_TOKEN use the anonymous path unchanged.
+    $apiHeaders = @{}
+    if ($env:GITHUB_TOKEN) { $apiHeaders["Authorization"] = "token $env:GITHUB_TOKEN" }
+    $Release = Invoke-RestMethod "https://api.github.com/repos/nubjs/nub/releases/latest" -Headers $apiHeaders
     $Version = $Release.tag_name -replace "^v", ""
 }
 
