@@ -59,7 +59,12 @@ fi
 
 version=${1:-latest}
 if [[ "$version" == latest ]]; then
-    version=$(curl -fsSL "https://api.github.com/repos/nubjs/nub/releases/latest" | grep '"tag_name"' | sed -E 's/.*"v(.*)".*/\1/')
+    # Authenticate the GitHub API call when a token is available: CI runners share
+    # an IP and hit the 60/hr unauthenticated rate limit (403). Real users without
+    # GITHUB_TOKEN use the anonymous path unchanged.
+    api_auth=()
+    [[ -n "${GITHUB_TOKEN:-}" ]] && api_auth=(-H "Authorization: token ${GITHUB_TOKEN}")
+    version=$(curl -fsSL "${api_auth[@]}" "https://api.github.com/repos/nubjs/nub/releases/latest" | grep '"tag_name"' | sed -E 's/.*"v(.*)".*/\1/')
     if [[ -z "$version" ]]; then
         error "Failed to determine latest version"
     fi
