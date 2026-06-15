@@ -13,16 +13,19 @@ $ nub pm which
 
 ## Pin resolution
 
-The pinned package manager resolves from three sources, in order:
+The pin is read from two `package.json` fields at the workspace root, in order:
 
-1. **`.yarnrc.yml` `yarnPath`** — a committed Yarn Berry release. Run directly; nothing to provision.
-2. **`package.json#packageManager`** — `name@x.y.z`, optionally `+sha512.<hash>`. The corepack field; Nub is contract-compatible with it.
-3. **`package.json#devEngines.packageManager`** — `{ name, version }`, where `version` may be a range.
+1. **`packageManager`** — the corepack field. Exact only (`pnpm@9.15.4`, optionally `+sha512.<hash>`).
+2. **`devEngines.packageManager`** — `{ name, version }`; the version may be a range.
 
-Pins are read at the workspace root. The `packageManager` field must be exact — the entire ecosystem enforces this (corepack, pnpm, Yarn all reject ranges there); ranges belong in `devEngines`. With no pin, there's nothing to manage — `nub pm which` says so and points at [`nub pm use`](#nub-pm-use).
+The `packageManager` field must be exact — corepack, pnpm, and Yarn all reject ranges there; ranges belong in `devEngines`. With no pin in either field, there's nothing to provision: `nub pm which` errors and points at [`nub pm use`](#nub-pm-use). Nub never infers the pinned manager from a lockfile — an unpinned project has no resolved package manager, full stop.
+
+<Callout title="Multiple lockfiles">
+A project with two PMs' lockfiles side by side (`pnpm-lock.yaml` and `package-lock.json`) is ambiguous — Nub errors (`ERR_NUB_LOCKFILE_AMBIGUOUS`) rather than guess which manager owns it. Remove the stale one, or declare the pin with [`nub pm use`](#nub-pm-use).
+</Callout>
 
 <Callout title="Yarn Berry">
-Yarn 2+ ships as a release committed to your repo (`.yarnrc.yml` `yarnPath`) — Nub runs that file directly and doesn't provision Berry: a `yarn@2+` pin without a committed release is an error. Yarn classic (1.x) provisions like any other package manager.
+A committed Berry release (`.yarnrc.yml` `yarnPath`) takes precedence over the pin fields above — an edge case, so it's omitted from the list; the `packageManager` field is the source you'll actually use. Nub runs the committed file directly and never provisions Berry, so a `yarn@2+` pin without a committed release is an error. Yarn classic (1.x) provisions like any other package manager.
 </Callout>
 
 ## `nub pm which`
@@ -59,7 +62,7 @@ using pnpm@11.5.3
 What it writes:
 
 - **`packageManager`** — the exact version plus a `+sha512` hash computed from the verified tarball. This is what corepack, pnpm, and turbo execute, and `use` is the only Nub command that writes it.
-- **The lockfile, in the new manager's format.** An existing lockfile in another format is *converted* — resolution state preserved — and the old file removed. Already the right format: kept as is. No lockfile: nothing; the next install creates it. The converted lockfile passes the real manager's frozen install (`pnpm install --frozen-lockfile`, `npm ci`, `bun install --frozen-lockfile`) byte-for-byte.
+- **The lockfile, in the new manager's format.** An existing lockfile in another format is *converted* — resolution state preserved — and the old file removed. A lockfile already in the target format is left untouched; if there's no lockfile yet, none is written — the next install creates it. The converted lockfile passes the real manager's frozen install (`pnpm install --frozen-lockfile`, `npm ci`, `bun install --frozen-lockfile`) byte-for-byte.
 
 Every file written or removed is named in the output; rerunning is a no-op. The refusals, all before anything is written: multiple foreign-format lockfiles (remove the stale ones first); a binary `bun.lockb` source (regenerate it as a text `bun.lock` with `bun install --save-text-lockfile` first); and `use yarn` in two cases it can't convert faithfully — an existing Berry (2+) `yarn.lock` (classic `use yarn` would downgrade the format; use `yarn set version` instead) and a graph that uses the `workspace:` protocol (classic yarn can't express it). A converting `use yarn` is otherwise fine — Nub writes a classic `yarn.lock` directly. Running `use bun` writes the pin and the lockfile but doesn't provision bun.
 
