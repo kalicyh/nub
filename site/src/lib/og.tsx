@@ -61,8 +61,9 @@ function Wordmark({ size }: { size: number }) {
 }
 
 type CardProps = {
-  /* Mono uppercase eyebrow, e.g. "DOCUMENTATION" or a command like "nub run". */
-  eyebrow: string;
+  /* Mono uppercase eyebrow, e.g. "DOCUMENTATION" or a command like "nub run".
+     Optional — the home card drops it (the tagline carries the message). */
+  eyebrow?: string;
   /* Headline — the page title, or the homepage tagline. */
   title: ReactElement | string;
   /* Optional supporting line under the title (muted). */
@@ -112,22 +113,25 @@ function Card({ eyebrow, title, subtitle }: CardProps) {
         }}
       />
 
-      {/* Eyebrow: mono, uppercase, tracked — the `.eyebrow` treatment. */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          fontFamily: 'IBM Plex Mono',
-          fontWeight: 500,
-          fontSize: '24px',
-          letterSpacing: '0.18em',
-          textTransform: 'uppercase',
-          color: EMBER,
-          position: 'relative',
-        }}
-      >
-        {eyebrow}
-      </div>
+      {/* Eyebrow: mono, uppercase, tracked — the `.eyebrow` treatment.
+          Omitted entirely on cards that don't pass one (e.g. the home card). */}
+      {eyebrow ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            fontFamily: 'IBM Plex Mono',
+            fontWeight: 500,
+            fontSize: '24px',
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            color: EMBER,
+            position: 'relative',
+          }}
+        >
+          {eyebrow}
+        </div>
+      ) : null}
 
       {/* Headline + subtitle block, vertically centered in the remaining space. */}
       <div
@@ -204,16 +208,16 @@ export function renderOgImage(props: CardProps) {
   return new ImageResponse(<Card {...props} />, { ...OG_SIZE, fonts });
 }
 
-/* The homepage card: the hero tagline, "augments" set in ember italic to match
-   the H1. No subtitle — the tagline carries it. */
+/* The homepage card: the punchy tagline, "all-in-one" set in ember italic to
+   match the homepage accent treatment. No eyebrow (it just restated the
+   tagline) and no subtitle — the tagline carries it. */
 export function renderHomeOgImage() {
   return renderOgImage({
-    eyebrow: 'An all-in-one toolkit for Node.js',
     title: (
       <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-        <span style={{ display: 'flex' }}>The toolkit that&nbsp;</span>
-        <span style={{ display: 'flex', fontStyle: 'italic', color: EMBER }}>augments</span>
-        <span style={{ display: 'flex' }}>&nbsp;Node.js</span>
+        <span style={{ display: 'flex' }}>The&nbsp;</span>
+        <span style={{ display: 'flex', fontStyle: 'italic', color: EMBER }}>all-in-one</span>
+        <span style={{ display: 'flex' }}>&nbsp;Node.js toolkit</span>
       </div>
     ),
   });
