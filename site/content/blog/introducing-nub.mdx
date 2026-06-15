@@ -373,7 +373,7 @@ Nub reads workspace topology from `package.json#workspaces` (npm, Yarn) and `pnp
 nub -r run build                  # all packages, topo-ordered
 nub --filter @org/api dev         # one package by name
 nub --filter "./packages/*" test  # glob match
-nub --filter ...@org/web build    # @org/web and its dependencies
+nub --filter "@org/web..." build  # @org/web and its dependencies
 nub --filter "[main]" test        # changed since main
 nub -r --no-bail test             # keep going past failures
 nub -r --workspace-concurrency 4 build   # cap parallel jobs

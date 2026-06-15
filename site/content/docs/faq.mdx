@@ -98,7 +98,7 @@ Yes. Workspace topology comes from `package.json`'s `"workspaces"` field (`npm`,
 nub run -r build                        # all workspace packages
 nub run --filter @org/api dev           # one package by name
 nub run --filter "./packages/*" test    # glob match
-nub run --filter ...@org/web build      # @org/web and its dependencies
+nub run --filter "@org/web..." build    # @org/web and its dependencies
 ```
 
 Topological ordering, parallelism, and `--workspace-root` are honored. The point is what *isn't* honored: the ~150 ms `pnpm` bootstrap, paid per package. In a 30-package monorepo, `pnpm -r run build` pays that bootstrap 30 times before any of your code runs; `nub run -r build` pays it zero.
