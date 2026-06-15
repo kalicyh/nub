@@ -1134,7 +1134,10 @@ mod tests {
         // None of dlx's own flags are part of nubx's surface — they stay default
         // so the fallback matches a bare `npx cowsay …` / `pnpm dlx cowsay …`.
         assert!(verb.package.is_empty(), "no -p: tool name is the package");
-        assert!(!verb.shell_mode, "no -c: tool argv must round-trip, not sh -c");
+        assert!(
+            !verb.shell_mode,
+            "no -c: tool argv must round-trip, not sh -c"
+        );
         assert!(verb.allow_build.is_empty(), "no scripts auto-approved");
 
         // A tool with no args still produces a single-positional invocation.
