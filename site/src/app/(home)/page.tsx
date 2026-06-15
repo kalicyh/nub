@@ -619,6 +619,7 @@ const APIS: { name: string; label: string }[] = [
   { name: 'URLPattern', label: 'Polyfilled < 24' },
   { name: 'WebSocket', label: 'Unflagged < 22' },
   { name: 'navigator.locks', label: 'Auto-polyfilled' },
+  { name: 'localStorage', label: 'Unflagged < 25' },
   { name: 'EventSource', label: 'Auto-unflagged' },
   { name: 'node:sqlite', label: 'Unflagged < 22.13' },
   { name: 'vm.Module', label: 'Auto-unflagged' },
