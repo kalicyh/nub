@@ -1276,10 +1276,11 @@ fn dispatch_subcommand(rest: Vec<String>) -> Result<i32> {
         return run_pm(&rest[1..]);
     }
 
-    // `agent` is the AI-agent onboarding group (`init`). Like `node`/`pm`, it's a
-    // non-forwarding manual sub-verb match — its bare-usage and invalid-verb
-    // messages read consistently and it never reaches clap dispatch. Spec:
-    // .fray/ai-friendliness.md.
+    // `agent` is the AI-agent onboarding group (`docs`/`skill` — both print-only,
+    // offline fallbacks for the homepage prompt's fetch of start.md/skill.md).
+    // Like `node`/`pm`, it's a non-forwarding manual sub-verb match — its
+    // bare-usage and invalid-verb messages read consistently and it never reaches
+    // clap dispatch. Spec: .fray/ai-friendliness.md.
     if subcommand == "agent" {
         return crate::agent::run(&rest[1..]);
     }

@@ -42,10 +42,9 @@ clap.workspace = true
 dirs-next.workspace = true
 dotenvy = "0.15"
 # `preserve_order` keeps serde_json::Map in INSERTION order (IndexMap-backed) so
-# `nub agent init`'s tsconfig merge preserves the user's existing key order
-# rather than alphabetizing the file (src/agent/tsconfig.rs).
+# pm_engine's config rewrites (use_nub.rs, config_scope.rs, store_config_family.rs)
+# preserve the user's existing key order rather than alphabetizing the file.
 serde_json = { workspace = true, features = ["preserve_order"] }
-jsonc-parser.workspace = true
 semver = "1"
 # pnpm-workspace.yaml read + regeneration for `nub pm use nub` / `use pnpm`
 # (pm_engine/use_nub.rs). Same 0.9 line vendor/aube already pins.
