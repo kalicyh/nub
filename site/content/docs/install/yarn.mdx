@@ -3,9 +3,19 @@ title: Yarn
 description: Yarn is supported read-only — Nub reads yarn.lock (Classic v1 and Berry v2+) to install and run a project, but never writes it. Treat a Yarn project as something Nub consumes, not maintains.
 ---
 
-Yarn is supported **read-only**. Nub reads a project's `yarn.lock` — Classic (v1) and Berry (v2+) — to install and run it, but never writes `yarn.lock`. Treat a Yarn project as something Nub *consumes*, not something Nub maintains: keep using `yarn` for anything that changes the dependency graph. This is the narrowest compatibility tier of any package manager Nub recognizes.
+Yarn is supported **read-only**. Install and run work; any command that would rewrite `yarn.lock` refuses before the engine touches anything:
 
-Read-only is enforced as a hard, eager refusal — and that's the reassurance. There is no path by which Nub silently rewrites, churns, or corrupts your `yarn.lock`. Any command that *would* mutate it is checked before the engine runs and rejected with exit code 1 and a message naming the equivalent `yarn` command, leaving the lockfile and `node_modules` exactly as they were. So `nub install` and `nub run` work against a Yarn project, while `nub add` / `nub remove` / `nub update` fail loudly and early rather than risk writing a format Nub can't round-trip.
+```console
+$ nub add lodash
+Error: nub add: refusing to modify yarn.lock — adding a dependency re-resolves and rewrites yarn.lock
+  yarn.lock write fidelity is unproven in the embedded engine, so commands
+  that would rewrite it are blocked. Run it with yarn directly:
+    yarn add lodash
+$ echo $?
+1
+```
+
+Nub reads `yarn.lock` (Classic v1 and Berry v2+) to install and run a project but never writes it, so it can't churn or corrupt the file. Keep using `yarn` for anything that changes the dependency graph.
 
 <CompatTable
   rows={[
@@ -41,17 +51,7 @@ Top-level `resolutions` in `package.json` is honored — Nub applies it the way 
 
 **No minimum version for reading.** Nub parses both `yarn.lock` formats: Classic (`yarn.lock` with no `__metadata` block, written by Yarn 1.x) and Berry (the `__metadata:` / `version:` format written by Yarn 2+). Every Yarn major is readable. The constraint here is not a version floor but the read-only tier — Nub never *writes* `yarn.lock`, regardless of format (below).
 
-Any command that would change `yarn.lock` is refused **before the engine touches anything** — the check fires the moment Nub detects a `yarn.lock`, so nothing on disk is read, resolved, or written first. The process exits non-zero with a message naming the equivalent `yarn` command. Captured against Nub 0.0.44, `nub add lodash` in a Yarn project (the verb, reason, and remedy are interpolated):
-
-```console
-$ nub add lodash
-Error: nub add: refusing to modify yarn.lock — adding a dependency re-resolves and rewrites yarn.lock
-  yarn.lock write fidelity is unproven in the embedded engine, so commands
-  that would rewrite it are blocked. Run it with yarn directly:
-    yarn add lodash
-$ echo $?
-1
-```
+Any command that would change `yarn.lock` is refused **before the engine touches anything** — the check fires the moment Nub detects a `yarn.lock`, so nothing on disk is read, resolved, or written first. The process exits non-zero (as shown above) with a message naming the equivalent `yarn` command.
 
 Refused (run these with `yarn`):
 
