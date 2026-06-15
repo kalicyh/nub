@@ -1,0 +1,94 @@
+---
+title: Module resolution
+description: The TypeScript-aware resolution Nub layers on top of Node — tsconfig paths and baseUrl, extends chains, extensionless imports, and the .js→.ts emit swap.
+---
+
+Nub adds a TypeScript-aware resolution layer on top of Node's own resolver. It owns exactly the cases Node has no opinion on — `tsconfig.json` path aliases, extensionless imports in TypeScript files, and the `.js`→`.ts` emit-convention swap. Everything else (node_modules, `exports` / `imports` maps, export conditions, scoped packages, bare specifiers) falls through to Node unchanged, so byte-for-byte compatibility is preserved for code that doesn't use these features.
+
+If your editor's Go-to-Definition works on an import and `tsc` accepts it, Nub resolves it the same way at runtime — no `tsconfig-paths` package, no build step. Resolution runs on every Node version nub supports (18.19+) — there is no Node-version floor for any feature on this page.
+
+## `tsconfig.json`
+
+Nub reads your nearest `tsconfig.json` and applies its resolution settings at runtime — `paths`, `baseUrl`, `extends` — matching what your editor and `tsc` already do.
+
+### `paths`
+
+Nub reads `compilerOptions.paths` and `compilerOptions.baseUrl` from your nearest `tsconfig.json` and applies them at runtime, so `@/...`-style aliases resolve with no extra tooling.
+
+```json
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@db": ["src/db/index.ts"]
+    }
+  }
+}
+```
+
+```ts
+import { db } from "@db";
+import { Button } from "@/components/Button";
+```
+
+Matching follows the `tsc` rules: an exact pattern wins outright, and among wildcard patterns the longest matching prefix wins. Node builtins always take precedence — `import "os"` is `node:os`, never `baseUrl/os.ts`.
+
+### `baseUrl`
+
+With `baseUrl` set and no matching `paths` entry, a bare specifier resolves relative to the base directory. A `import "lib/config"` finds `baseUrl/lib/config.ts` on its own.
+
+```json
+{ "compilerOptions": { "baseUrl": "." } }
+```
+
+```ts
+import { config } from "lib/config";   // resolves <baseUrl>/lib/config.ts
+```
+
+A bare specifier with no `baseUrl`-relative file on disk falls through to Node's node_modules resolution — Nub never probes node_modules itself.
+
+### `extends`
+
+Nub walks up to the nearest `tsconfig.json` and follows `extends` chains, including array `extends` (later entries win) and package extends like `extends: "@tsconfig/node20/tsconfig.json"` resolved through node_modules. The TS 5.5 `${configDir}` template is interpolated against the consuming config's directory.
+
+Configs are read once per process. Edit your `tsconfig.json` and restart the process — or let [`nub watch`](/docs/watch) restart it for you.
+
+> Package `extends` under Yarn PnP is not resolved through the PnP API — it falls back to the node_modules walk, which covers the common npm / pnpm install.
+
+## Extensionless imports
+
+In TypeScript-family files, extensionless imports resolve the way `tsc` resolves them — `import "./foo"` finds `./foo.ts`. This is the conventional pattern most TypeScript codebases use.
+
+```ts
+// from a .ts / .tsx / .mts / .cts file:
+import { config } from "./config";   // resolves ./config.ts
+import data from "./fixtures";       // resolves ./fixtures/index.ts (or its package.json "main")
+```
+
+The probe order is extension-aware — it depends on the parent file's extension:
+
+```text
+.ts  parent →  .ts  .tsx  .js  .jsx  .json
+.tsx parent →  .tsx  .ts  .jsx  .js  .json   # JSX extensions sort first
+.mts parent →  .mts  .mjs  …                 # prefers the matching .mjs sibling
+.cts parent →  .cts  .cjs  …                 # prefers the matching .cjs sibling
+```
+
+A directory import honors the directory's `package.json` `"main"` before falling back to `index.*` probing.
+
+This probing is scoped to TypeScript-family parent files only. A plain `.js` file stays strict about extensions, exactly like vanilla Node, so reversible `.js` code behaves identically under `nub` and `node`.
+
+## .js → .ts resolution
+
+With `moduleResolution: "nodenext"`, `tsc` wants a `.js` extension on relative imports even though the file on disk is `.ts`. Nub reverses that at runtime, so the same source runs before and after a build.
+
+```ts
+import { handler } from "./handler.js";  // resolves ./handler.ts when no ./handler.js exists
+```
+
+A real on-disk `./handler.js` always wins; the swap only fires when the written extension points at a file that doesn't exist. The same rewrite covers `.jsx → .tsx`, `.mjs → .mts`, and `.cjs → .cts`.
+
+## The compatibility boundary
+
+The resolution layer returns a path only for the additive cases above: `paths` aliases, the TS extension probes, the emit-convention swap, directory-index probing, and a directory's `package.json` `"main"`. For node_modules resolution, `exports` / `imports` maps, export conditions, scoped packages, and bare specifiers, Nub defers entirely to Node. That boundary is where compatibility lives — Nub never reimplements Node's own resolution.
