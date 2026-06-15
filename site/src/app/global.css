@@ -193,6 +193,15 @@ pre span[style*='#6a737d'] {
   padding-top: 0.625rem;
 }
 
+/* Widen the docs sidebar so chip+chevron nav rows ("Package manager / nub install ›")
+   don't wrap to two lines. Fumadocs default is 268px; 310px gives enough room for the
+   longest title + command chip + folder chevron to sit on a single line. */
+@media (width >= 48rem) {
+  #nd-docs-layout {
+    --fd-sidebar-width: 310px;
+  }
+}
+
 /* Clickable elements always get the pointer cursor. */
 button:not(:disabled),
 [role='button'],
