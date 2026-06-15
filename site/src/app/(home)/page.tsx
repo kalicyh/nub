@@ -911,9 +911,9 @@ function Compatibility() {
           })}
         </div>
         <p className="mx-auto mt-6 max-w-lg text-center text-sm leading-relaxed text-fd-muted-foreground">
-          A separate cross-runtime measurement, node-relative: each runtime against the identical
-          corpus, scored as a fraction of what stock Node passes. Deno and Bun reimplement Node&rsquo;s
-          APIs; Nub runs on Node, so it tracks Node.{' '}
+          Deno&rsquo;s published Node-compatibility corpus, run against every runtime with Deno&rsquo;s
+          own skip list and scored node-relative — each as a fraction of what stock Node passes. Deno
+          and Bun reimplement Node&rsquo;s APIs; Nub runs on Node, so it tracks Node.{' '}
           <a
             href="https://github.com/nubjs/nub/tree/main/tests/cross-runtime"
             target="_blank"
