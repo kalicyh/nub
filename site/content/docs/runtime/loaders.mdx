@@ -1,6 +1,6 @@
 ---
 title: Loaders
-description: Import .json/.jsonc/.json5/.toml/.yaml/.yml/.txt directly — default and named exports, via an extension-keyed load hook.
+description: Import .json/.jsonc/.json5/.toml/.yaml/.yml/.txt directly — default exports, via an extension-keyed load hook.
 ---
 
 <TypesSetup>
@@ -10,12 +10,11 @@ The features on this page (the `.toml` / `.yaml` loaders) require nub's global t
 Import a config or data file directly.
 
 ```ts
-import config from "./config.yaml";          // parsed object
-import flags from "./feature.jsonc";         // parsed object (comments stripped)
-import pkg from "./Cargo.toml";              // parsed object
-import schema from "./schema.json5";         // parsed object (JSON5 superset)
-import prompt from "./prompt.txt";           // string
-import { host, port } from "./config.yaml";  // named exports mirror top-level keys
+import config from "./config.yaml";  // parsed object
+import flags from "./feature.jsonc"; // parsed object (comments stripped)
+import pkg from "./Cargo.toml";      // parsed object
+import schema from "./schema.json5"; // parsed object (JSON5 superset)
+import prompt from "./prompt.txt";   // string
 ```
 
 ## Extensions
@@ -30,9 +29,9 @@ Loaders are keyed on file extension:
 
 The `.json` extension is intentionally not in this set — it is Node-native (`resolveJsonModule`), so Nub leaves it to Node.
 
-## Default and named exports
+## Default export
 
-The default export is the parsed value. When the parsed value is an object, each top-level key is also emitted as a named export, so you can destructure at the import site.
+A data module exposes a single default export — the parsed value, exactly like Node's own JSON modules. There are no named exports; destructure the default to pull out top-level keys.
 
 ```yaml
 # config.yaml
@@ -41,8 +40,8 @@ port: 5432
 ```
 
 ```ts
-import config from "./config.yaml";          // { host: "localhost", port: 5432 }
-import { host, port } from "./config.yaml";  // "localhost", 5432
+import config from "./config.yaml"; // { host: "localhost", port: 5432 }
+const { host, port } = config;      // "localhost", 5432
 ```
 
-Only keys that are valid JavaScript binding identifiers become named exports. A key that is a reserved word (`package`, `class`, `default`, …) or not an identifier stays reachable through the default export — so a `Cargo.toml` with a `[package]` table imports cleanly, with `package` available as `pkg.package`.
+The object formats are typed `Record<string, unknown>`, so destructured keys are `unknown` — narrow or cast them at the use site. A data file whose top-level value is an array or scalar imports as that value via the default; cast it, since the wildcard type assumes an object.

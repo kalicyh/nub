@@ -22,27 +22,36 @@
 // `declare var …`, `declare namespace …`) for the same reason.
 
 // ── Data-format module imports (Nub load hook; wiki/runtime/data-loaders.md) ──
-// Default export only — a wildcard cannot statically know per-key shapes, so
-// named imports (`import { host } from "./c.yaml"`) are not typed (they still RUN
-// on nub). `.json` is intentionally NOT declared: it's Node-native (resolveJsonModule).
+// Default export ONLY — data modules expose no named exports (a named import
+// like `import { host } from "./c.yaml"` is a load-time error on nub, the same
+// as Node's JSON modules). The object formats default to `Record<string,
+// unknown>` so the default can be destructured with sound `unknown` keys —
+// `import cfg from "./c.yaml"; const { host, port } = cfg;` gives `host`/`port:
+// unknown`. This is the sound, typeable equivalent of named imports.
+//
+// CAVEAT: a top-level array or scalar (e.g. a YAML document whose root is a list
+// or a bare string) is mistyped as a record by `Record<string, unknown>`; cast
+// the default in that case (`import data from "./list.yaml"; const items = data
+// as unknown as string[];`). `.txt` is always a `string`; `.json` is
+// intentionally NOT declared — it's Node-native (resolveJsonModule).
 declare module "*.yaml" {
-  const data: unknown;
+  const data: Record<string, unknown>;
   export default data;
 }
 declare module "*.yml" {
-  const data: unknown;
+  const data: Record<string, unknown>;
   export default data;
 }
 declare module "*.toml" {
-  const data: unknown;
+  const data: Record<string, unknown>;
   export default data;
 }
 declare module "*.jsonc" {
-  const data: unknown;
+  const data: Record<string, unknown>;
   export default data;
 }
 declare module "*.json5" {
-  const data: unknown;
+  const data: Record<string, unknown>;
   export default data;
 }
 declare module "*.txt" {

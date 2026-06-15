@@ -162,7 +162,7 @@ import flags  from "./feature.jsonc" // comments stripped
 import pkg    from "./Cargo.toml"    // parsed object
 import prompt from "./prompt.txt"    // string
 
-import { host, port } from "./config.yaml" // named exports
+const { host, port } = config        // destructure the default
 ```
 
 ### Environment files

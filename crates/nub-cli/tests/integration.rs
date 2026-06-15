@@ -1927,6 +1927,9 @@ fn cjs_require_resolves_tsconfig_paths_and_extensionless_from_ts_parent() {
 
 #[test]
 fn data_format_loaders() {
+    // Every data format exposes a DEFAULT EXPORT ONLY; consumers destructure the
+    // default. Each format's parsed value is asserted via the default, including
+    // nested objects, numbers, arrays, booleans, and a reserved-word key.
     let (stdout, stderr, code) = run_nub("data-loaders", "main.ts");
     assert_eq!(code, 0, "stderr: {stderr}");
     assert!(stdout.contains("jsonc:localhost"), "jsonc failed: {stdout}");
@@ -1936,15 +1939,15 @@ fn data_format_loaders() {
     );
     assert!(
         stdout.contains("yaml-host:db.example.com"),
-        "yaml named export (nested): {stdout}"
+        "yaml nested object via default: {stdout}"
     );
     assert!(
         stdout.contains("yaml-port:5432"),
-        "yaml named export (number): {stdout}"
+        "yaml number via default: {stdout}"
     );
     assert!(
         stdout.contains("yaml-tags:production,primary"),
-        "yaml named export (array): {stdout}"
+        "yaml array via default: {stdout}"
     );
     assert!(
         stdout.contains("yaml-default:myapp"),
@@ -1952,11 +1955,11 @@ fn data_format_loaders() {
     );
     assert!(
         stdout.contains("toml-title:App Config"),
-        "toml named export (string): {stdout}"
+        "toml string via default: {stdout}"
     );
     assert!(
         stdout.contains("toml-port:8080"),
-        "toml named export (nested number): {stdout}"
+        "toml nested number via default: {stdout}"
     );
     assert!(
         stdout.contains("toml-tls:true"),
@@ -1964,23 +1967,44 @@ fn data_format_loaders() {
     );
     assert!(
         stdout.contains("toml-debug:false"),
-        "toml default export (boolean): {stdout}"
+        "toml boolean via default: {stdout}"
     );
     assert!(
         stdout.contains("toml-pkg:data-demo"),
-        "reserved-word key `package` via default export, no SyntaxError (A15): {stdout}"
+        "reserved-word key `package` reachable via default export (A15): {stdout}"
     );
     assert!(
         stdout.contains("json5-name:myapp"),
-        "json5 named export: {stdout}"
+        "json5 string via default: {stdout}"
     );
     assert!(
         stdout.contains("json5-ver:2"),
-        "json5 default export (number): {stdout}"
+        "json5 number via default: {stdout}"
     );
     assert!(
         stdout.contains("json5-feat:auth,logging"),
-        "json5 named export (array): {stdout}"
+        "json5 array via default: {stdout}"
+    );
+}
+
+#[test]
+fn data_named_import_is_a_load_error() {
+    // Data loaders are default-only: a named import of a data module has no
+    // matching export and fails at module instantiation. Node reports it as a
+    // SyntaxError ("does not provide an export named 'database'") and the process
+    // exits non-zero — nothing from the importing module runs.
+    let (stdout, stderr, code) = run_nub("data-loaders-named", "main.ts");
+    assert_ne!(
+        code, 0,
+        "named import of a data module must fail; stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("does not provide an export named 'database'"),
+        "expected the missing-named-export load error; stderr: {stderr}"
+    );
+    assert!(
+        !stdout.contains("should-not-print"),
+        "the importing module must not execute when the named import fails: {stdout}"
     );
 }
 

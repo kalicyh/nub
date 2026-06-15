@@ -160,22 +160,6 @@ export const TRANSPILE_EXTS = new Set([".ts", ".tsx", ".mts", ".cts", ".jsx"]);
 export const DATA_EXTS = { ".jsonc": "jsonc", ".json5": "json5", ".toml": "toml", ".yaml": "yaml", ".yml": "yaml", ".txt": "txt" };
 export const TS_PARENT_EXTS = new Set([".ts", ".tsx", ".mts", ".cts"]);
 
-// Reserved words / literals that cannot be a lexical binding name in a module
-// (modules are strict mode). A data file with a top-level key like `package`
-// (e.g. a Cargo.toml `[package]` table) must NOT emit `export const package = …`
-// — that is a SyntaxError that takes down the whole module, default export
-// included. Such keys stay reachable via the default export. Matches bun, which
-// deoptimizes invalid-identifier keys rather than failing the whole module.
-const RESERVED_EXPORT_NAMES = new Set([
-  "break", "case", "catch", "class", "const", "continue", "debugger", "default",
-  "delete", "do", "else", "enum", "export", "extends", "false", "finally", "for",
-  "function", "if", "import", "in", "instanceof", "new", "null", "return", "super",
-  "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while", "with",
-  // Strict-mode (modules are always strict) future-reserved + restricted names:
-  "implements", "interface", "let", "package", "private", "protected", "public",
-  "static", "yield", "await", "eval", "arguments",
-]);
-
 // Packages resolved from Nub's distribution, not the user's.
 export const VENDORED_PACKAGES = new Set(["@oxc-project/runtime"]);
 
@@ -689,15 +673,12 @@ export function loadData(url, ext) {
     return { format: "module", source: "export default undefined;\n", shortCircuit: true };
   }
 
-  let code = `const _data = ${JSON.stringify(parsed)};\nexport default _data;\n`;
-  if (typeof parsed === "object" && !Array.isArray(parsed)) {
-    for (const key of Object.keys(parsed)) {
-      // Emit a named export only for keys that are valid, non-reserved binding
-      // identifiers; everything else remains reachable via the default export.
-      if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) && !RESERVED_EXPORT_NAMES.has(key)) {
-        code += `export const ${key} = _data[${JSON.stringify(key)}];\n`;
-      }
-    }
-  }
+  // Default export only. Data modules deliberately do NOT emit per-key named
+  // exports: named imports of data are categorically un-typeable in TypeScript
+  // (a `declare module "*.yaml"` wildcard has no per-key export index signature),
+  // and default-only matches Node's own JSON modules. Consumers destructure the
+  // default — `import cfg from "./c.yaml"; const { host } = cfg;` — which the
+  // `@nubjs/types` `Record<string, unknown>` default type makes sound.
+  const code = `export default ${JSON.stringify(parsed)};\n`;
   return { format: "module", source: code, shortCircuit: true };
 }
