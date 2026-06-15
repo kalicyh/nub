@@ -1166,9 +1166,9 @@ catalog:
             title="Mirrors your package manager's config rules"
             body={
               <>
-                Whichever package manager your project uses, Nub applies exactly the config fields
-                that tool would — and ignores the ones it wouldn&rsquo;t. It never adds a{' '}
-                <Mono>&quot;nub&quot;</Mono>{' '}field of its own.
+                Nub supports all the listed configuration mechanisms, but toggles them on and off
+                based on the conventions of your project&rsquo;s inferred package manager. There is
+                no Nub-specific configuration file.
               </>
             }
             visual={<PMMatrix />}
