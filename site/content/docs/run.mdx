@@ -94,7 +94,7 @@ npm_package_*         # full enumeration
 INIT_CWD              # the directory you invoked `nub run` from
 ```
 
-Inside a script, spawning `node` (by shebang or `child_process.spawn("node", …)`) re-enters Nub through the PATH shim, so child processes stay transpiled and augmented — see [Run without augmentation](#run-without-augmentation) below.
+Inside a script, spawning `node` (by shebang or `child_process.spawn("node", …)`) re-enters Nub through the PATH shim, so child processes stay transpiled and augmented — see [`--node`](#--node) below.
 
 ## `--script-shell`
 

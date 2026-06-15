@@ -10,6 +10,8 @@ nub index.ts
 nub server.tsx
 ```
 
+Transpilation works on every Node version nub supports (18.19+) — it happens before Node sees the code, so there is no Node-version floor for any of the transforms on this page. The one carve-out is source maps; see [Source maps](#source-maps) below.
+
 Files inside `node_modules` are never transpiled; they load exactly as the package shipped them. Nub does not type-check — types are stripped for execution; keep `tsc --noEmit` in your editor and CI for type validation.
 
 ## Non-erasable syntax
@@ -34,7 +36,7 @@ These files don't run on vanilla `node` (with or without type-stripping), so sup
 
 JSX and decorators each have their own page: see [JSX](/docs/runtime/jsx) for the `.jsx` / `.tsx` runtime and tsconfig configuration, and [Decorators](/docs/runtime/decorators) for the legacy `experimentalDecorators` form and `emitDecoratorMetadata`.
 
-## `using` / `await using`
+## Explicit resource management
 
 Explicit Resource Management — the `using` and `await using` declarations — is downleveled so it runs on Nub's entire Node floor. Node 22's V8 cannot parse `using` natively (it's a hard `SyntaxError`), so Nub's transpiler lowers it to the helper-based form before Node ever sees it.
 
@@ -59,7 +61,7 @@ after scope
 
 The lowering targets `es2022` — the highest target that still rewrites `using` while leaving everything Node 22 already supports (top-level await, class fields, private methods) untouched. The disposal helper resolves through Nub's vendored runtime; you don't install anything.
 
-## `--enable-source-maps`
+## Source maps
 
 Nub generates an inline source map for every transpiled file and injects `--enable-source-maps`, so uncaught errors and `console.trace()` print frames that point at your original TypeScript source and line numbers — not the generated JS. It's on by default; there's no flag to remember, and breakpoints set in `.ts` source land correctly under `nub --inspect`.
 

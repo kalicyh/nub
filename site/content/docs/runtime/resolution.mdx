@@ -89,6 +89,16 @@ import { handler } from "./handler.js";  // resolves ./handler.ts when no ./hand
 
 A real on-disk `./handler.js` always wins; the swap only fires when the written extension points at a file that doesn't exist. The same rewrite covers `.jsx → .tsx`, `.mjs → .mts`, and `.cjs → .cts`.
 
-## The compatibility boundary
+## What falls through to Node
 
-The resolution layer returns a path only for the additive cases above: `paths` aliases, the TS extension probes, the emit-convention swap, directory-index probing, and a directory's `package.json` `"main"`. For node_modules resolution, `exports` / `imports` maps, export conditions, scoped packages, and bare specifiers, Nub defers entirely to Node. That boundary is where compatibility lives — Nub never reimplements Node's own resolution.
+Nub resolves only the cases Node has no opinion on. Everything else is Node's job:
+
+| Nub resolves | Node handles |
+|---|---|
+| `tsconfig.json` `paths` aliases | `node_modules` resolution |
+| TS extension probes | `exports` / `imports` maps |
+| the `.js`→`.ts` emit swap | export conditions |
+| directory-index probing | scoped packages |
+| a directory's `package.json` `"main"` | bare specifiers |
+
+Because Nub only adds the additive cases and never reimplements Node's own resolution, byte-for-byte compatibility holds for any code that doesn't use these features.
