@@ -97,7 +97,7 @@ Corporate network? Node downloads honor `HTTP(S)_PROXY`/`NO_PROXY`, and corporat
 node-mirror:release=https://artifactory.corp.example/node/
 ```
 
-`NODEJS_ORG_MIRROR` (the nvm/n convention) takes precedence when set. An explicit mirror is used for musl builds too — point it at a mirror that carries the `unofficial-builds` layout on Alpine.
+The `NODEJS_ORG_MIRROR` env var (the nvm/n convention) takes precedence when set. An explicit mirror is used for musl builds too — point it at a mirror that carries the `unofficial-builds` layout on Alpine.
 
 ## Bring your own version manager
 

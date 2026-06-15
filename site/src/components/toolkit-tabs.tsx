@@ -21,8 +21,9 @@ function Chevron({ dir }: { dir: 'left' | 'right' }) {
 }
 
 type Accent = 'ember' | 'acid' | 'sky' | 'orchid' | 'pink';
+type NodeVersion = { full: string; major: string };
 
-const PIECES: {
+const buildPieces = (node: NodeVersion): {
   accent: Accent;
   command: string;
   label: string;
@@ -30,7 +31,7 @@ const PIECES: {
   blurb: ReactNode;
   replaces: string[];
   lines: { cmd?: string; comment?: string; out?: string }[];
-}[] = [
+}[] => [
   {
     accent: 'ember',
     command: 'nub <file>',
@@ -38,9 +39,9 @@ const PIECES: {
     title: 'A TypeScript-first Node.js',
     blurb: (
       <>
-        Run <Mono>.ts</Mono>, <Mono>.tsx</Mono>, and <Mono>.jsx</Mono> on stock Node with full{' '}
-        <Mono>tsconfig.json</Mono> support, <Mono>.env</Mono> loading, and unflagged support
-        for modern syntax and APIs.
+        Run <Mono>.ts</Mono>, <Mono>.tsx</Mono>, and <Mono>.jsx</Mono> on stock Node with full
+        support for <Mono>tsconfig.json</Mono>, <Mono>.env</Mono> loading, and modern syntax and
+        Web APIs.
       </>
     ),
     replaces: ['tsx', 'ts-node', 'tsconfig-paths', 'dotenv'],
@@ -55,11 +56,11 @@ const PIECES: {
     accent: 'acid',
     command: 'nub run',
     label: 'Script runner',
-    title: 'A 7× faster pnpm run',
+    title: 'A 25× faster pnpm run',
     blurb: (
       <>
         A drop-in for <Mono>npm run</Mono> and <Mono>pnpm run</Mono> with lifecycle hooks, env
-        vars, and workspaces, minus the per-call Node bootstrap.
+        vars, and workspaces, minus the per-call JS startup these tools pay.
       </>
     ),
     replaces: ['npm run', 'pnpm run'],
@@ -90,26 +91,6 @@ const PIECES: {
     ],
   },
   {
-    accent: 'orchid',
-    command: 'nub node',
-    label: 'Node version manager',
-    title: 'A built-in Node version manager',
-    blurb: (
-      <>
-        Reads <Mono>.node-version</Mono> / <Mono>.nvmrc</Mono> and installs the right Node
-        from nodejs.org. Replaces <Mono>nvm</Mono> and <Mono>fnm</Mono>.
-      </>
-    ),
-    replaces: ['nvm', 'fnm'],
-    lines: [
-      { cmd: 'echo 26 > .node-version' },
-      { cmd: 'nub hello.ts' },
-      { out: 'Using Node.js 26.3.0 (resolved from .node-version)' },
-      { out: 'Installed in 9.8s' },
-      { out: 'Hello world!' },
-    ],
-  },
-  {
     accent: 'pink',
     command: 'nub install',
     label: 'Package manager',
@@ -129,6 +110,26 @@ const PIECES: {
       { cmd: 'nub ci' },
     ],
   },
+  {
+    accent: 'orchid',
+    command: 'nub node',
+    label: 'Node version manager',
+    title: 'A built-in Node version manager',
+    blurb: (
+      <>
+        Reads <Mono>.node-version</Mono> / <Mono>.nvmrc</Mono> and installs the right Node
+        from nodejs.org. Replaces <Mono>nvm</Mono> and <Mono>fnm</Mono>.
+      </>
+    ),
+    replaces: ['nvm', 'fnm'],
+    lines: [
+      { cmd: `echo ${node.major} > .node-version` },
+      { cmd: 'nub hello.ts' },
+      { out: `Using Node.js ${node.full} (resolved from .node-version)` },
+      { out: 'Installed in 9.8s' },
+      { out: 'Hello world!' },
+    ],
+  },
 ];
 
 const TAB: Record<Accent, { text: string; active: string; hover: string; pill: string; dot: string }> = {
@@ -139,7 +140,8 @@ const TAB: Record<Accent, { text: string; active: string; hover: string; pill: s
   pink: { text: 'text-pink', active: 'border-pink/50 bg-pink/10', hover: 'hover:bg-pink/10', pill: 'border-pink/40 text-pink', dot: 'bg-pink' },
 };
 
-export function ToolkitTabs() {
+export function ToolkitTabs({ node }: { node: NodeVersion }) {
+  const PIECES = buildPieces(node);
   const [active, setActive] = useState(0);
   const piece = PIECES[active];
   const tab = TAB[piece.accent];

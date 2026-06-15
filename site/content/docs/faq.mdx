@@ -74,7 +74,7 @@ Yes — Linux (x64, arm64), macOS (x64, arm64), Windows (x64). Same platforms th
 
 ## Does it replace my package manager?
 
-It can. `nub install` is a full package manager, powered by the embedded aube engine — pnpm's CLI surface, your project's lockfile. It detects the lockfile your project already has and writes the same format back: `pnpm-lock.yaml`, `package-lock.json`, and `bun.lock` round-trip in place, never replaced with a foreign file (`yarn.lock` is honored read-only — an install that would rewrite it is refused, with the exact yarn command to run instead).
+It can — `nub install` is a full package manager, powered by the embedded aube engine — pnpm's CLI surface, your project's lockfile. It detects the lockfile your project already has and writes the same format back: `pnpm-lock.yaml`, `package-lock.json`, and `bun.lock` round-trip in place, never replaced with a foreign file (`yarn.lock` is honored read-only — an install that would rewrite it is refused, with the exact yarn command to run instead).
 
 Because Nub writes the same lockfile your package manager does, nothing forces a migration: pnpm, npm, and bun keep working side by side — run either tool, commit the same file, switch back any time. And when you want the original tool itself, `nub pm use` provisions the exact pinned version — corepack's job, without the PATH shims.
 

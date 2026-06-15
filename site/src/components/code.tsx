@@ -100,18 +100,42 @@ export function Bench({
   rows,
   max,
   accent = 'ember',
+  source,
+  caption,
 }: {
   label: string;
   rows: { cmd: string; ms: number; ratio?: number | null; us?: boolean }[];
   max: number;
   accent?: 'ember' | 'acid' | 'sky';
+  /* Optional link to the benchmark source — rendered as a small centered
+     caption underneath the card. */
+  source?: string;
+  /* Optional descriptive caption text shown before the link. */
+  caption?: string;
 }) {
   return (
-    <div className="not-prose my-6 rounded-xl border border-fd-border bg-[#0b0a08] p-6">
-      <p className="mb-5 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-fd-muted-foreground">
-        {label}
-      </p>
-      <BenchBars accent={accent} max={max} rows={rows} />
+    <div className="not-prose my-6">
+      <div className="rounded-xl border border-fd-border bg-[#0b0a08] p-6">
+        <p className="mb-5 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-fd-muted-foreground">
+          {label}
+        </p>
+        <BenchBars accent={accent} max={max} rows={rows} />
+      </div>
+      {(caption || source) && (
+        <p className="mt-2.5 text-center text-xs text-fd-muted-foreground">
+          {caption ? <span>{caption} </span> : null}
+          {source ? (
+            <a
+              href={source}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-fd-muted-foreground/70 underline decoration-dotted decoration-fd-muted-foreground/50 underline-offset-4 hover:text-fd-muted-foreground"
+            >
+              View benchmark →
+            </a>
+          ) : null}
+        </p>
+      )}
     </div>
   );
 }

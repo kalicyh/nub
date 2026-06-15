@@ -63,7 +63,7 @@ What it writes:
 - **The lockfile, in the new manager's format.** An existing lockfile in another format is *converted* — resolution state preserved, never deleted-and-regenerated — and the old file removed. Already the right format: kept as is. No lockfile: nothing; the next install creates it. The converted lockfile passes the real manager's frozen install (`pnpm install --frozen-lockfile`, `npm ci`, `bun install --frozen-lockfile`) byte-for-byte.
 - **`devEngines` is never created.** If it already exists and names a different manager, its `name` is reconciled (version dropped — `packageManager` alone pins exactly).
 
-Every file written or removed is named in the output; rerunning is a no-op. Two refusals, both before anything is written: multiple foreign-format lockfiles (nub won't guess which carries the real resolution state — remove the stale ones first), and `use yarn` when it would have to convert (nub doesn't write `yarn.lock` yet; generate it with `yarn install`, then rerun — with `yarn.lock` in place only the declaration is written). `use bun` writes the declaration and the lockfile but doesn't provision bun.
+Every file written or removed is named in the output; rerunning is a no-op. Two refusals, both before anything is written: multiple foreign-format lockfiles (nub won't guess which carries the real resolution state — remove the stale ones first), and `use yarn` when it would have to convert (nub doesn't write `yarn.lock` yet; generate it with `yarn install`, then rerun — with `yarn.lock` in place only the declaration is written). Running `use bun` writes the declaration and the lockfile but doesn't provision bun.
 
 ## `nub pm update`
 
