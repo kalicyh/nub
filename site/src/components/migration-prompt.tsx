@@ -30,13 +30,13 @@ export function MigrationPrompt({ className = '' }: { className?: string }) {
       className={`group inline-flex items-center gap-2.5 rounded-full border border-fd-border bg-fd-card/60 py-2 pl-4 pr-3.5 text-sm leading-none text-fd-muted-foreground backdrop-blur hover:border-ember/50 hover:bg-ember/[0.06] ${className}`}
     >
       <span className="text-fd-foreground">Copy agent prompt</span>
-      <span className="inline-flex w-4 shrink-0 justify-center text-fd-muted-foreground group-hover:text-ember">
+      <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-fd-muted-foreground group-hover:text-ember">
         {copied ? (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
             <path d="M20 6 9 17l-5-5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         ) : (
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
             <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="2" />
             <path d="M5 15V5a2 2 0 0 1 2-2h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
