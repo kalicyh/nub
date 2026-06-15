@@ -202,7 +202,7 @@ The polyfilled rows work on every Node version Nub supports — feature-detected
 | `URLPattern` | Node 24 | polyfilled |
 | `WebSocket` | Node 22.0 | unflagged on 20.10–21.x; absent below 20.10 |
 | `EventSource` | — | unflagged on 20.18+ and 22.3+; absent below |
-| `localStorage` | Node 25 | unflagged on 22.4–24, plus a workspace-scoped `--localstorage-file` on every version ≥22.4 |
+| `localStorage` | Node 25 | opt-in via `--localstorage-file`; undefined otherwise. On 22.4–24, Nub also injects `--experimental-webstorage` when you pass the file |
 | `sessionStorage` | Node 25 | unflagged on 22.4–24 — in-memory and per-process by design |
 | `vm.Module` | — | unflagged on the entire 18.19+ floor |
 | `node:sqlite` | Node 22.13 | unflagged on 22.5–22.12; absent below 22.5 |
@@ -266,9 +266,10 @@ stream.addEventListener("message", (e) => process.stdout.write(e.data));
 
 ### `localStorage` / `sessionStorage`
 
-Web Storage is native in Node 25+; on 22.4–24 Node hides it behind a flag, which Nub injects automatically — so `localStorage` works on every supported version. Node also leaves persistence broken by default: it silently fails unless you pass `--localstorage-file`. Nub defaults the storage file to `~/.cache/nub/webstorage/<workspace-hash>/localstorage.sqlite` — scoped to your workspace, so monorepo members share one store and it survives across runs. Your own `--localstorage-file`, set anywhere, always wins. The `sessionStorage` global is in-memory and per-process, by design.
+The `sessionStorage` global — in-memory, per-process — works out of the box. Persistent `localStorage` is opt-in: pass `--localstorage-file=<path>` and Node persists to that file. On the 22.4–24 band Node also gates the global behind `--experimental-webstorage`, which Nub injects for you whenever you supply the file, so a single `--localstorage-file` is enough on every supported version. Without that flag, `localStorage` stays `undefined`, exactly as on plain Node — Nub adds no default store.
 
 ```ts
+// run with: nub --localstorage-file=.localstorage app.ts
 localStorage.setItem("auth.token", "abc123");
 const token = localStorage.getItem("auth.token");
 ```

@@ -235,7 +235,7 @@ const stream = new EventSource("https://api/stream");  // auto-unflagged
 const worker = new Worker(new URL("./w.ts", import.meta.url), { type: "module" });
 ```
 
-The storage globals — `localStorage` / `sessionStorage` — also work without you setting `--localstorage-file`; Nub defaults the storage file under `~/.cache/nub` so persistence just works. And `reportError`, `vm.Module` (used by Jest/Vitest), and `node:sqlite` are likewise available where Node still gates them.
+The `sessionStorage` global (in-memory, per-process) works out of the box; `localStorage` is opt-in — pass `--localstorage-file=<path>` to enable it (Nub injects `--experimental-webstorage` for you on the 22.4–24 band where Node needs it), otherwise `localStorage` stays `undefined`, exactly as on plain Node. And `reportError`, `vm.Module` (used by Jest/Vitest), and `node:sqlite` are likewise available where Node still gates them.
 
 **Native** — Node ships it; Nub steps aside entirely. **Unflagged** — Node implements it behind an `--experimental-*` flag; Nub injects the flag. **Polyfilled** — Nub preloads an established community polyfill until your Node floor reaches the native line.
 
@@ -246,7 +246,7 @@ The storage globals — `localStorage` / `sessionStorage` — also work without 
 | `URLPattern` | Node 24 | polyfilled |
 | `WebSocket` | Node 22.0 | unflagged on 20.10–21.x; absent below 20.10 |
 | `EventSource` | — | unflagged on 20.18+ and 22.3+; absent below |
-| `localStorage` | Node 25 | unflagged on 22.4–24, plus a workspace-scoped `--localstorage-file` on every version ≥22.4 |
+| `localStorage` | Node 25 | opt-in via `--localstorage-file`; undefined otherwise. On 22.4–24, Nub also injects `--experimental-webstorage` when you pass the file |
 | `sessionStorage` | Node 25 | unflagged on 22.4–24 — in-memory and per-process by design |
 | `vm.Module` | — | unflagged on the entire 18.19+ floor |
 | `node:sqlite` | Node 22.13 | unflagged on 22.5–22.12; absent below 22.5 |
