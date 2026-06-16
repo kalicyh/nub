@@ -65,6 +65,24 @@ pub fn provision_pm(
     project_root: &Path,
     resolved_from: Option<&str>,
 ) -> Result<ProvisionedPm> {
+    provision_pm_announced(pin, store_root, project_root, resolved_from, None)
+}
+
+/// [`provision_pm`] with an optional `on_resolved` hook fired exactly once with the
+/// concrete version the moment it is known — BEFORE any cache-hit early return and
+/// BEFORE the `Installing…`/`Installed…` progress, so a caller (the PM shim) can
+/// print its own header (`pnpm@9.5.0 (via nub shim)`) ahead of the install readout.
+/// Passing `on_resolved` ALSO suppresses provisioning's own `Using <pm> <version>`
+/// line: the shim's header conveys the version, so the `Using…` line is redundant
+/// there. Direct `nub install`/`nub run` provisioning passes `None` and keeps the
+/// `Using…` line unchanged.
+pub fn provision_pm_announced(
+    pin: &PmPin,
+    store_root: &Path,
+    project_root: &Path,
+    resolved_from: Option<&str>,
+    on_resolved: Option<&dyn Fn(&str)>,
+) -> Result<ProvisionedPm> {
     let pm = pin.pm;
     let raw = pin
         .version
@@ -78,6 +96,11 @@ pub fn provision_pm(
     // the cached package's own manifest (same `name`/`bin` shape as the packument).
     if semver::Version::parse(spec).is_ok() {
         if let Some(bin) = cached_bin(&pm_store, spec) {
+            // Warm cache: the concrete version is `spec` itself. Fire the hook so
+            // the shim header still prints, then return silently (no `Installing…`).
+            if let Some(cb) = on_resolved {
+                cb(spec);
+            }
             return Ok(ProvisionedPm {
                 bin,
                 version: spec.to_string(),
@@ -100,6 +123,9 @@ pub fn provision_pm(
         Err(err) if semver::Version::parse(spec).is_err() => {
             match best_cached_match(&pm_store, spec) {
                 Some((version, bin)) => {
+                    if let Some(cb) = on_resolved {
+                        cb(&version);
+                    }
                     eprintln!(
                         "nub: registry unreachable; using cached {pm} {version} for \"{spec}\""
                     );
@@ -110,6 +136,12 @@ pub fn provision_pm(
         }
         Err(err) => return Err(err),
     };
+
+    // The concrete version is now known (a range/dist-tag resolved). Fire the hook
+    // before the cache check / install so the shim header precedes any progress.
+    if let Some(cb) = on_resolved {
+        cb(&dist.version);
+    }
 
     let final_dir = pm_store.join(&dist.version);
     let bin = final_dir.join("package").join(&dist.bin_subpath);
@@ -128,6 +160,7 @@ pub fn provision_pm(
         pin_hash,
         cfg.auth.as_ref(),
         resolved_from,
+        on_resolved.is_some(),
     )?;
     Ok(ProvisionedPm {
         bin,
@@ -237,6 +270,7 @@ fn best_cached_match(pm_store: &Path, spec: &str) -> Option<(String, PathBuf)> {
 /// tarballs and PM `.tgz`s — would make a generic `Provisioner` trait pure
 /// indirection). `pin_hash` is the pin's `<algo>.<hex>` suffix, when the pin
 /// carried one — verified against the downloaded tarball before extraction.
+#[allow(clippy::too_many_arguments)] // distinct provisioning inputs; a struct would be pure ceremony
 fn install(
     pm: super::Pm,
     dist: &VersionDist,
@@ -245,6 +279,7 @@ fn install(
     pin_hash: Option<&str>,
     auth: Option<&download::Auth>,
     resolved_from: Option<&str>,
+    quiet_using: bool,
 ) -> Result<()> {
     // Sibling temp dir on the same filesystem → final placement is an atomic
     // rename. The guard cleans it up on every exit path. A failure here is the
@@ -267,11 +302,15 @@ fn install(
     // pin provenance when known) states what was resolved, the `Installing`
     // announce appears BEFORE the download (so a slow fetch isn't silence), and
     // on a TTY the `Installed` line OVERWRITES the announce — a finished session
-    // shows two lines. Non-TTY (CI logs, pipes) keeps all three.
+    // shows two lines. Non-TTY (CI logs, pipes) keeps all three. `quiet_using`
+    // drops the `Using…` line for the PM shim, whose own `<pm>@<version> (via nub
+    // shim)` header (printed before this) already states the resolved version.
     let tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
-    match resolved_from {
-        Some(p) => eprintln!("Using {pm} {} (resolved from {p})", dist.version),
-        None => eprintln!("Using {pm} {}", dist.version),
+    if !quiet_using {
+        match resolved_from {
+            Some(p) => eprintln!("Using {pm} {} (resolved from {p})", dist.version),
+            None => eprintln!("Using {pm} {}", dist.version),
+        }
     }
     let mut announced = false;
     download::download_to_file_auth(&dist.tarball, &tarball, auth, |_done, total| {
@@ -599,6 +638,37 @@ mod tests {
         let prov = provision_pm(&pin, &store, &store, None).expect("offline cache hit");
         assert_eq!(prov.version, "9.5.0");
         assert!(prov.bin.ends_with("9.5.0/package/bin/pnpm.cjs"));
+        let _ = std::fs::remove_dir_all(&store);
+    }
+
+    #[test]
+    fn on_resolved_hook_fires_with_the_concrete_version_on_a_warm_cache() {
+        // The shim header (`pnpm@9.5.0 (via nub shim)`) is driven by this hook: it
+        // must fire even on a warm cache hit (which returns before any install
+        // progress) so the notice still prints, and it must carry the concrete
+        // resolved version (the exact pin's own version here).
+        let store = offline_store_with("hook-warm", "9.5.0");
+        let pin = PmPin {
+            pm: Pm::Pnpm,
+            version: Some("9.5.0+sha512.abc".to_string()),
+        };
+        let seen = std::cell::RefCell::new(Vec::<String>::new());
+        let prov = provision_pm_announced(
+            &pin,
+            &store,
+            &store,
+            None,
+            Some(&|v: &str| {
+                seen.borrow_mut().push(v.to_string());
+            }),
+        )
+        .expect("offline cache hit");
+        assert_eq!(prov.version, "9.5.0");
+        assert_eq!(
+            *seen.borrow(),
+            vec!["9.5.0".to_string()],
+            "the hook fires exactly once with the concrete version"
+        );
         let _ = std::fs::remove_dir_all(&store);
     }
 

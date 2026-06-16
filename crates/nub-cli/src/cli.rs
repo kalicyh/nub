@@ -4912,7 +4912,7 @@ fn list_pm_cache(pm_cache: &Path) -> Vec<String> {
 // block, decision matrix, PATH scan — lives in `nub_core::pm::shim`; this
 // section owns argv handling, the messages, and the final exec.
 
-/// `nub pm shim`: hardlink the running nub under the six PM names (plus `nub`)
+/// `nub pm shim`: hardlink the running nub under the six PM names
 /// in `~/.nub/shims`, write the marked PATH block into the shell profile
 /// (install.sh's mechanism), and verify reachability. Idempotent — re-running
 /// re-links, which is also how shims are refreshed after `nub upgrade`.
@@ -4980,9 +4980,10 @@ fn run_pm_shim_install() -> Result<i32> {
     }
     match shim::add_path_block()? {
         ProfileOutcome::Added(profile) => println!(
-            "  PATH: added {} to {} — open a new shell or run `source {}`\n\
-             \x20       (login/non-interactive profiles are wired automatically too, so\n\
-             \x20        IDE- and GUI-spawned package managers see the shims — no manual step)",
+            "  added {} to PATH in {}\n  \
+             restart your shell, or run: source {}\n  \
+             (login/non-interactive profiles are wired automatically too, so\n  \
+             IDE- and GUI-spawned package managers see the shims)",
             dir.display(),
             profile.display(),
             profile.display()
@@ -5028,8 +5029,7 @@ fn run_pm_shim_install() -> Result<i32> {
 
 /// `nub pm unshim`: delete the shim dir and strip the marked PATH block from
 /// every known profile. Touches only profiles + the shim dir, so it keeps
-/// working after the official nub is uninstalled (the shim dir's own `nub`
-/// hardlink is what's running then). Idempotent.
+/// working from any nub still on PATH (`~/.nub/bin`). Idempotent.
 fn run_pm_unshim() -> Result<i32> {
     use nub_core::pm::shim;
 
@@ -5188,13 +5188,21 @@ fn shim_plan(
                 );
             }
             // Cache-first: an exact pin already in the store is zero-network.
-            let prov = nub_core::pm::provision::provision_pm(&pin, &pm_store_root()?, cwd, None)?;
-            // Announce the resolved PM + version on the shim-dispatch path only
-            // (corepack-style notice): a dim, stderr-only `pnpm@11.0.1 (via nub
-            // shim)`. `prov.version` is the version we already resolved for this
-            // exec — no extra resolve. Direct `nub install`/`nub run` never reach
-            // here, so they stay silent (they aren't "via nub shim").
-            emit_shim_version_line(pin.pm, &prov.version);
+            // The corepack-style notice (a dim, stderr-only `pnpm@9.5.0 (via nub
+            // shim)`) prints BEFORE the install readout via the `on_resolved`
+            // hook — fired the moment the concrete version is known, ahead of any
+            // `Installing…`/`Installed…` progress. Passing the hook also suppresses
+            // provisioning's own `Using <pm> <version>` line (redundant with this
+            // header). Direct `nub install`/`nub run` pass no hook — they aren't
+            // "via nub shim" and keep their `Using…` line.
+            let pm = pin.pm;
+            let prov = nub_core::pm::provision::provision_pm_announced(
+                &pin,
+                &pm_store_root()?,
+                cwd,
+                None,
+                Some(&|version: &str| emit_shim_version_line(pm, version)),
+            )?;
             let bin = shim::sibling_bin(&prov.bin, bin_entry)?;
             exec_under_project_node(cwd, bin, args)
         }

@@ -23,10 +23,9 @@ const lines: Line[] = [
   { text: '~/.nub/shims/pnpm' },
   { text: '' },
   { text: 'pnpm --version', prompt: true },
-  { text: 'Using pnpm 9.5.0', dim: true },
+  { text: 'pnpm@9.5.0 (via nub shim)', dim: true },
   { text: 'Installing... (4 MB)', dim: true },
   { text: 'Installed in 0.8s', dim: true },
-  { text: 'pnpm@9.5.0 (via nub shim)', dim: true },
   { text: '9.5.0' },
 ];
 
