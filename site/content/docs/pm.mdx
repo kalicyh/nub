@@ -108,32 +108,4 @@ To fetch package managers from a different registry than your dependencies, `COR
 
 ## `nub pm shim`
 
-Make **bare** `npm` / `pnpm` / `yarn` commands (plus the runners `npx` / `pnpx`) use the project's pinned package manager — typed from muscle memory, or spawned by tools you don't control. This is what `corepack enable` does, without the corepack tax: each shim *is* the Nub binary (a hardlink), so deciding which PM to run costs zero Node boots.
-
-```console
-$ nub pm shim
-nub pm shim: 7 entries in ~/.nub/shims (7 created)
-  PATH: added ~/.nub/shims to ~/.zshrc — open a new shell or run `source ~/.zshrc`
-```
-
-The seven entries are the package-manager shims (`npm`, `pnpm`, `yarn`) and their runners (`npx`, `pnpx`), plus yarn's `yarnpkg` alias and a `nub` self-link.
-
-With shims active, a bare command resolves against the project it runs in:
-
-- **Pinned, matching name** — runs the pinned version, provisioning it on first use. A cached pin runs fully offline.
-- **Pinned, different name** — refuses: `npm install` in a pnpm project would write a competing `package-lock.json`; the error names the pinned manager and the command to paste. (`npx`, `pnpx`, and the `init` / `create` / `dlx` / `exec` verbs are exempt — `npm create vite` works anywhere.)
-- **Unpinned** — falls through to the package manager already on your `PATH`, exactly as if the shim weren't there. If there is none, Nub provisions a sensible default (matched to your lockfile's format, else latest) and says so.
-
-Strictness applies to commands you type. When a package manager is already running above the shim — a lifecycle script shelling out to a different PM, detected via `npm_config_user_agent` — a name mismatch falls through to the system PM instead of refusing.
-
-Re-run `nub pm shim` after upgrading Nub to refresh the links.
-
-## `nub pm unshim`
-
-Remove the shims and the `PATH` entry. Works even after the Nub binary itself has been uninstalled — the shim directory carries its own copy for exactly this cleanup.
-
-```console
-$ nub pm unshim
-nub pm unshim: removed ~/.nub/shims
-  PATH: removed the shims block from ~/.zshrc
-```
+The shims are an opt-in: run `nub pm shim` and a bare `pnpm`, `npm`, or `yarn` command routes through Nub to the package manager your project pins, with `nub pm unshim` to remove them. Default usage needs none of this — `nub install` and `nub run` already run the pin. See [Package-manager shims](/docs/pm-shim) for the install, the strict-by-default refusal, and the per-invocation overhead.
