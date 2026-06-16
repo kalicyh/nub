@@ -93,9 +93,18 @@ fn recursive_run_skips_packages_without_the_script_and_exits_zero() {
     // and exits 0; nub used to error on the missing one.
     let (stdout, stderr, code) = run_nub(&root, &["run", "-r", "dev"]);
     let combined = format!("{stdout}{stderr}");
-    assert_eq!(code, 0, "missing script in one package must not fail the run\n{combined}");
-    assert!(combined.contains("DEV:api"), "api's dev must run\n{combined}");
-    assert!(combined.contains("DEV:web"), "web's dev must run\n{combined}");
+    assert_eq!(
+        code, 0,
+        "missing script in one package must not fail the run\n{combined}"
+    );
+    assert!(
+        combined.contains("DEV:api"),
+        "api's dev must run\n{combined}"
+    );
+    assert!(
+        combined.contains("DEV:web"),
+        "web's dev must run\n{combined}"
+    );
     assert!(
         !combined.contains("utils") || !combined.contains("missing"),
         "utils must be skipped silently, not reported as a missing-script failure\n{combined}"
@@ -108,7 +117,10 @@ fn recursive_run_with_no_matching_script_anywhere_notifies_and_exits_zero() {
     let (stdout, stderr, code) = run_nub(&root, &["run", "-r", "absent-everywhere"]);
     // pnpm 10.x prints "None of the selected packages has a ..." on stdout and
     // exits 0 — it's informational, not a failure.
-    assert_eq!(code, 0, "all-missing recursive run matches pnpm's exit 0\nstderr: {stderr}");
+    assert_eq!(
+        code, 0,
+        "all-missing recursive run matches pnpm's exit 0\nstderr: {stderr}"
+    );
     assert!(
         stdout.contains("None of the selected packages has a \"absent-everywhere\" script"),
         "the pnpm-style notice must print on stdout, got stdout: {stdout}"
@@ -128,14 +140,20 @@ fn recursive_run_propagates_a_real_script_failure() {
         std::fs::write(&manifest, serde_json::to_string(&json).unwrap()).unwrap();
     }
     let (_stdout, stderr, code) = run_nub(&root, &["run", "-r", "boom"]);
-    assert_ne!(code, 0, "a failing script must propagate a non-zero exit\n{stderr}");
+    assert_ne!(
+        code, 0,
+        "a failing script must propagate a non-zero exit\n{stderr}"
+    );
 }
 
 #[test]
 fn filter_matching_no_package_is_a_clean_no_op() {
     let root = script_workspace("no-match-filter");
     let (_stdout, stderr, code) = run_nub(&root, &["run", "-F", "does-not-exist", "build"]);
-    assert_eq!(code, 0, "a filter that matches nothing exits 0 (pnpm parity)\n{stderr}");
+    assert_eq!(
+        code, 0,
+        "a filter that matches nothing exits 0 (pnpm parity)\n{stderr}"
+    );
     assert!(
         stderr.contains("No projects matched the filters"),
         "the pnpm-style no-match message must surface, got: {stderr}"
@@ -145,9 +163,14 @@ fn filter_matching_no_package_is_a_clean_no_op() {
 #[test]
 fn fail_if_no_match_turns_an_empty_filter_into_an_error() {
     let root = script_workspace("fail-if-no-match");
-    let (_stdout, stderr, code) =
-        run_nub(&root, &["run", "-F", "does-not-exist", "--fail-if-no-match", "build"]);
-    assert_ne!(code, 0, "--fail-if-no-match restores the hard error\n{stderr}");
+    let (_stdout, stderr, code) = run_nub(
+        &root,
+        &["run", "-F", "does-not-exist", "--fail-if-no-match", "build"],
+    );
+    assert_ne!(
+        code, 0,
+        "--fail-if-no-match restores the hard error\n{stderr}"
+    );
 }
 
 /// Offline guard for the network-backed remove test.
@@ -178,10 +201,16 @@ fn filtered_remove_keeps_a_workspace_dep_resolvable() {
     let root = script_workspace("remove-seeding");
 
     let (o1, e1, c1) = run_nub(&root, &["install"]);
-    assert_eq!(c1, 0, "initial install must succeed\nstdout: {o1}\nstderr: {e1}");
+    assert_eq!(
+        c1, 0,
+        "initial install must succeed\nstdout: {o1}\nstderr: {e1}"
+    );
 
     let (o2, e2, c2) = run_nub(&root, &["add", "is-positive", "--filter", "web"]);
-    assert_eq!(c2, 0, "add into web must succeed\nstdout: {o2}\nstderr: {e2}");
+    assert_eq!(
+        c2, 0,
+        "add into web must succeed\nstdout: {o2}\nstderr: {e2}"
+    );
 
     let (o3, e3, c3) = run_nub(&root, &["remove", "is-positive", "--filter", "web"]);
     assert_eq!(
@@ -197,8 +226,14 @@ fn filtered_remove_keeps_a_workspace_dep_resolvable() {
     // dep is gone from web's package.json and the lockfile carries no
     // is-positive entry, while the workspace:* dep survives.
     let web = std::fs::read_to_string(root.join("packages/web/package.json")).unwrap();
-    assert!(!web.contains("is-positive"), "is-positive must be gone from web's manifest: {web}");
-    assert!(web.contains("workspace:*"), "the workspace:* dep on utils must survive: {web}");
+    assert!(
+        !web.contains("is-positive"),
+        "is-positive must be gone from web's manifest: {web}"
+    );
+    assert!(
+        web.contains("workspace:*"),
+        "the workspace:* dep on utils must survive: {web}"
+    );
     let lock = std::fs::read_to_string(root.join("pnpm-lock.yaml")).unwrap();
     assert!(
         !lock.contains("is-positive"),
