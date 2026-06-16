@@ -100,7 +100,7 @@ npmRegistries:
 nodeLinker: node-modules
 ```
 
-Project `.yarnrc.yml` outranks the global `~/.yarnrc.yml`, matching Yarn's rc-file precedence. The support is intentionally narrow: CA/proxy fields, `packageExtensions`, `supportedArchitectures`, constraints, plugins, patch-folder config, and Yarn cache layout are still ignored.
+Nub reads the global `~/.yarnrc.yml` plus any project `.yarnrc.yml` files from the workspace root down to the current project directory; nearer project files win. The support is intentionally narrow: CA/proxy fields, `packageExtensions`, `supportedArchitectures`, constraints, plugins, patch-folder config, and Yarn cache layout are still ignored.
 
 Classic `.yarnrc` (Yarn 1) is not parsed.
 

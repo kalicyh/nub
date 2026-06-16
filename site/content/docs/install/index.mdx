@@ -226,11 +226,11 @@ In a workspace, only the **root** carries the declaration and lockfile; Nub walk
 A project is Nub identity when it declares Nub through `nub pm use nub` or when `lock.yaml` is the only lockfile signal. In that mode, Nub's surface is deliberately neutral:
 
 - **Lockfile:** `lock.yaml`, using the pnpm v9 lockfile schema byte-for-byte under Nub's own basename.
-- **Package fields:** `workspaces`, top-level `overrides` and `resolutions`, `catalog` / `catalogs`, top-level `patchedDependencies`, top-level `allowBuilds`, `dependenciesMeta.injected`, `engines.node`, and lifecycle `scripts`.
+- **Package fields:** `workspaces` (array form, or object form with `packages`, `catalog`, and `catalogs`), top-level `overrides` and `resolutions`, top-level `patchedDependencies`, top-level `allowBuilds`, `engines.node`, and lifecycle `scripts`.
 - **Config and env:** the standard `.npmrc` cascade, `npm_config_*`, neutral env such as `CI` and proxy variables, plus Nub's own PM knobs: `NUB_CACHE_DIR`, `NUB_CONCURRENCY`, and `NUB_PRIMER_TTL`.
 - **Install state:** `node_modules/.nub/`, `.nub-state`, and the global store under Nub's own cache/data directories.
 
-Nub identity does **not** read another package manager's branded project config. `pnpm-workspace.yaml`, `.pnpmfile.cjs`, `.pnpmfile.mjs`, the `pnpm.*` package.json namespace, `pnpm_config_*`, `.yarnrc.yml`, `bunfig.toml`, Bun `trustedDependencies`, and aube's `AUBE_*` runtime knobs are outside the Nub identity surface. If you want pnpm hooks or pnpm workspace config to apply, keep the project pnpm-owned or run `nub pm use pnpm`.
+Nub identity does **not** read another package manager's branded project config. `pnpm-workspace.yaml`, `.pnpmfile.cjs`, `.pnpmfile.mjs`, the `pnpm.*` package.json namespace, `pnpm_config_*`, `.yarnrc.yml`, `bunfig.toml`, Bun `trustedDependencies`, and aube's `AUBE_*` runtime knobs are outside the Nub identity surface. `dependenciesMeta.injected` is also not implemented under Nub identity; `nub pm use nub` refuses projects that rely on injected dependencies. If you want pnpm hooks or pnpm workspace config to apply, keep the project pnpm-owned or run `nub pm use pnpm`.
 
 <Callout title="Contradictions are loud">
 When signals disagree, Nub stops and reports it. Two lockfiles, no declaration:
