@@ -1527,7 +1527,7 @@ fn nub_setting_defaults(detected: Option<&DetectedLockfile>) -> Vec<(String, Str
         ("stateDir".to_string(), "node_modules/.nub".to_string()),
         (
             "disableGlobalVirtualStoreForPackages".to_string(),
-            "@sveltejs/kit,next,nuxt,parcel".to_string(),
+            "next,nuxt,parcel".to_string(),
         ),
     ];
     if let Some(data) = nub_data_dir() {

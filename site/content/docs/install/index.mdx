@@ -262,14 +262,12 @@ The default `node_modules` layout is **isolated**: direct dependencies sit at th
 
 `--node-linker hoisted` produces a flat, npm-style layout instead. npm, Yarn, and Bun incumbents default to `hoisted`; pnpm and nub-identity projects keep `isolated`.
 
-### Offline and the global virtual store
+### Offline installs
 
-A global virtual store reuses fully materialized package directories across projects (on by default for local installs, off under CI). A handful of build-heavy frameworks opt out (`@sveltejs/kit`, `next`, `nuxt`, `parcel`).
+When the global store already holds every package, a warm install is mostly links into that shared store — no re-download, no re-copy — so it runs near-instantly, and offline.
 
 ```bash
 nub install            # offline when the store already holds every package
 nub install --offline  # force offline
 nub install --prefer-offline  # try the cache first
 ```
-
-See [aube's store docs](https://aube.jdx.dev/package-manager/global-virtual-store) for the full model.
