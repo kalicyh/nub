@@ -1231,6 +1231,15 @@ pub(crate) fn engine_brand_preflight() {
         .unwrap_or(ConfigSurface::PnpmOrFresh);
     let read_branded_pnpm_config = matches!(surface, ConfigSurface::PnpmOrFresh);
     let read_yarn_config = read_yarn_config_for_surface(&surface);
+    // Classic Yarn (v1) reads `.yarnrc`; Yarn Berry (v2+) abandoned it for
+    // `.yarnrc.yml` and ignores a stray legacy `.yarnrc`. Gate the engine's
+    // classic-`.yarnrc` reader to provably-classic projects so a Berry project's
+    // leftover `.yarnrc` doesn't silently override registry/auth. Only meaningful
+    // under a yarn surface (where `read_yarn_config` is already true).
+    let yarn_is_classic = match &surface {
+        ConfigSurface::NonPnpmCompat { role: "yarn", dir } => yarn_surface_is_classic(dir),
+        _ => false,
+    };
     let bunfig = match &surface {
         ConfigSurface::NonPnpmCompat { role: "bun", dir } => {
             bun_config::load_bunfig_npmrc_entries(dir)
@@ -1242,6 +1251,7 @@ pub(crate) fn engine_brand_preflight() {
     aube_util::update_engine_context(|c| {
         c.read_branded_pnpm_config = read_branded_pnpm_config;
         c.read_yarn_config = read_yarn_config;
+        c.yarn_is_classic = yarn_is_classic;
         c.read_manifest_root_config = read_manifest_root_config;
         c.pnpmfile_default_enabled = pnpmfile_default_enabled;
         c.synthetic_user_npmrc_entries = bunfig.user;
@@ -1427,6 +1437,64 @@ fn resolve_config_surface(cwd: &Path) -> ConfigSurface {
 
 fn read_yarn_config_for_surface(surface: &ConfigSurface) -> bool {
     matches!(surface, ConfigSurface::NonPnpmCompat { role: "yarn", .. })
+}
+
+/// Whether the yarn-incumbent project rooted at `dir` is *classic* (v1) — the
+/// gate for the engine's classic-`.yarnrc` reader.
+///
+/// Classic Yarn (v1) reads `.yarnrc`; Yarn Berry (v2+) abandoned it for
+/// `.yarnrc.yml` and ignores any stray legacy `.yarnrc`. So `.yarnrc` may only
+/// be honored for a provably-classic project. The rule is conservative:
+/// **any Berry signal forces not-classic** (default to Berry), and classic is
+/// returned only on an affirmative classic signal with no Berry signal present.
+///
+/// Berry signals (any ⇒ NOT classic): the identity probe resolves Berry
+/// (committed `yarnPath`, a pinned major ≥ 2, or a versionless `yarn` beside a
+/// `.yarnrc.yml`); a `.yarnrc.yml` present; a `.yarn/` release/state dir; or a
+/// Berry-format `yarn.lock` (the `__metadata:` header).
+///
+/// Classic signals: the identity probe resolves classic yarn (e.g.
+/// `packageManager: yarn@1`), or a classic-format `yarn.lock` (the
+/// `# yarn lockfile v1` header) with none of the Berry signals.
+fn yarn_surface_is_classic(dir: &Path) -> bool {
+    // Berry config file — present iff the project is (or was set up as) Berry.
+    if dir.join(".yarnrc.yml").is_file() {
+        return false;
+    }
+    // Berry's release/state directory (`.yarn/releases`, `.yarn/cache`, …).
+    if dir.join(".yarn").is_dir() {
+        return false;
+    }
+    let yarn_lock = dir.join("yarn.lock");
+    if let Ok(head) = read_file_head(&yarn_lock, 4096) {
+        // Berry-format lockfile carries a `__metadata:` block; classic carries
+        // the `# yarn lockfile v1` banner.
+        if head.contains("__metadata:") {
+            return false;
+        }
+        if head.contains("yarn lockfile v1") {
+            // Classic lockfile and no Berry signal above → classic.
+            return true;
+        }
+    }
+    // No lockfile signal: fall back to the declared identity. `berry == false`
+    // on a yarn identity (e.g. `packageManager: yarn@1.22.x`) is classic; an
+    // absent/ambiguous identity stays NOT classic (conservative — Berry-leaning).
+    matches!(
+        nub_core::pm::resolve::project_pm_identity(dir),
+        Some(id) if id.name == "yarn" && !id.berry
+    )
+}
+
+/// Read up to `max_bytes` from the start of `path` as UTF-8 (lossy). Used for a
+/// cheap header peek that avoids slurping a large lockfile.
+fn read_file_head(path: &Path, max_bytes: usize) -> std::io::Result<String> {
+    use std::io::Read as _;
+    let mut file = std::fs::File::open(path)?;
+    let mut buf = vec![0u8; max_bytes];
+    let n = file.read(&mut buf)?;
+    buf.truncate(n);
+    Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
 /// Nub's replacement setting defaults, fed to the engine's embedder-defaults
