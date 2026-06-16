@@ -236,7 +236,7 @@ pub const ENGINE_VERBS: &[VerbSpec] = &[
         aube_args: "commands::create::CreateArgs",
     },
     // `init` is deliberately NOT registered: the spelling is reserved for
-    // nub's own project init (the maintainer owns the verb), not the engine's
+    // nub's own project init (Colin owns the verb), not the engine's
     // npm-style manifest scaffold. cli.rs answers `nub init` with a
     // "nub's own init is coming" note instead of a PM redirect.
     // Workspace fanout meta-verb. Registered so it errors with the honest
@@ -634,7 +634,7 @@ fn engine_session_inner(dir: Option<&Path>, noise: ConfigScopeNoise) -> Result<E
     engine_brand_preflight();
     let cwd = std::env::current_dir()?;
     let detected = resolve_identity_walk_up(&cwd)?;
-    // Role-first lifecycle UA (two-mode model, the maintainer 2026-06-10): in compat
+    // Role-first lifecycle UA (two-mode model, Colin 2026-06-10): in compat
     // mode nub plays the incumbent PM's role completely, so the UA dep
     // postinstalls sniff leads with that PM's token (`pnpm/<ver> nub/<ver>
     // node/v<ver> …`, nub always second); under nub identity or in a fresh
@@ -1208,7 +1208,7 @@ pub(crate) fn engine_brand_preflight() {
     // override is read via `config_env("CACHE_DIR")` → `NUB_CACHE_DIR` under nub
     // (the branded `AUBE_CACHE_DIR` is never read under nub).
     identity::register();
-    // Config surface follows role (two-mode model, the maintainer 2026-06-10): under
+    // Config surface follows role (two-mode model, Colin 2026-06-10): under
     // NUB identity the pnpm surface is OFF — `pnpm-workspace.yaml` unread and
     // the `package.json#pnpm.*` namespace not consulted (the `manifest_namespace
     // = ""` root carries top-level `workspaces` (+ catalogs), `overrides`,
@@ -1252,7 +1252,7 @@ pub(crate) fn engine_brand_preflight() {
             // A stray pnpm-workspace.yaml under nub identity (branch merge,
             // tutorial copy-paste) is ignore-with-warning, never read and never
             // silent: deterministic nub-pure behavior, one warning, remedies
-            // named (the maintainer 2026-06-10, supersedes read-with-warning). The read
+            // named (Colin 2026-06-10, supersedes read-with-warning). The read
             // itself is already gated off by `read_branded_pnpm_config = false`.
             if dir.join("pnpm-workspace.yaml").is_file() {
                 eprintln!(
@@ -1703,11 +1703,84 @@ pub(crate) fn with_fd_captured<T>(fd: libc::c_int, f: impl FnOnce() -> T) -> (T,
     }
 }
 
-/// KNOWN GAP (non-unix): no fd capture — the engine's raw prints reach the
-/// console un-rewritten, so `approve-builds`' final hint still names the
-/// engine's verbs on Windows. Root fix is fork-side (embedder-aware tool
-/// name in those prints); see the install family's module doc.
-#[cfg(not(unix))]
+/// Windows counterpart of the Unix [`with_fd_captured`], built on the CRT
+/// fd surface (`_dup`/`_dup2`/`_pipe`/`_read`). Rust's `println!`/`print!`
+/// write through CRT fd 1 on Windows, so the same dup2-swap-into-a-pipe
+/// strategy captures the engine's raw prints there too. This is load-bearing
+/// for `config get registry`: its default-registry substitution detects the
+/// engine's `undefined` print *from the capture*, so an empty capture (the
+/// old stub) silently dropped the substitution and surfaced `undefined`.
+///
+/// The captured payloads here are tiny (`undefined\n`, a registry URL, a
+/// short hint), so — unlike the Unix path's concurrent drain — the pipe is
+/// given a large buffer and read after `f` returns and the fd is restored;
+/// the small fixed payloads can't fill a 1 MiB pipe, so no deadlock. Any
+/// setup failure degrades to running `f` unredirected with an empty capture,
+/// exactly like the Unix path.
+#[cfg(windows)]
+pub(crate) fn with_fd_captured<T>(fd: i32, f: impl FnOnce() -> T) -> (T, String) {
+    use std::io::Write as _;
+
+    static FD_SWAP: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = FD_SWAP.lock().unwrap_or_else(|p| p.into_inner());
+
+    let flush = |fd: libc::c_int| {
+        if fd == 1 {
+            let _ = std::io::stdout().flush();
+        }
+    };
+
+    // Generous pipe buffer: the payloads captured here are a few bytes, so a
+    // 1 MiB buffer makes the read-after-restore approach deadlock-free.
+    const PIPE_BUF: libc::c_uint = 1 << 20;
+    // _O_BINARY (0x8000): no CRLF translation, so the capture is byte-exact.
+    const O_BINARY: libc::c_int = 0x8000;
+
+    // SAFETY: plain CRT fd plumbing on fds this function owns end-to-end.
+    unsafe {
+        let mut ends = [0 as libc::c_int; 2];
+        if libc::pipe(ends.as_mut_ptr(), PIPE_BUF, O_BINARY) != 0 {
+            return (f(), String::new());
+        }
+        let (read_end, write_end) = (ends[0], ends[1]);
+        flush(fd); // pre-swap: drain pending bytes to the real target
+        let saved = libc::dup(fd);
+        if saved < 0 || libc::dup2(write_end, fd) < 0 {
+            libc::close(read_end);
+            libc::close(write_end);
+            if saved >= 0 {
+                libc::close(saved);
+            }
+            return (f(), String::new());
+        }
+        let result = f();
+        flush(fd); // push f's buffered tail into the pipe
+        // Restore the real fd and close our write end so the read sees EOF.
+        libc::dup2(saved, fd);
+        libc::close(saved);
+        libc::close(write_end);
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 8192];
+        loop {
+            let n = libc::read(
+                read_end,
+                chunk.as_mut_ptr() as *mut libc::c_void,
+                chunk.len() as libc::c_uint,
+            );
+            if n <= 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n as usize]);
+        }
+        libc::close(read_end);
+        (result, String::from_utf8_lossy(&buf).into_owned())
+    }
+}
+
+/// KNOWN GAP (neither unix nor windows): no fd capture — the engine's raw
+/// prints reach the console un-rewritten. No such target exists in nub's
+/// support matrix today; the stub keeps the build total.
+#[cfg(not(any(unix, windows)))]
 pub(crate) fn with_fd_captured<T>(_fd: i32, f: impl FnOnce() -> T) -> (T, String) {
     (f(), String::new())
 }

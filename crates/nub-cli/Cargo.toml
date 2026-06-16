@@ -68,3 +68,11 @@ url = "2.5"
 # fd-level capture of the engine's raw println/eprintln hint lines so the
 # brand rewrite can reach them (pm_engine/install_family.rs::with_fd_captured).
 libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# CRT fd-level capture (_dup/_dup2/_pipe/_read) so `with_fd_captured` works on
+# Windows too — load-bearing for `config get registry`'s default-registry
+# substitution, which detects the engine's `undefined` print from the capture
+# (pm_engine/mod.rs::with_fd_captured). Without it the substitution silently
+# breaks and the default registry is never surfaced on Windows.
+libc.workspace = true
