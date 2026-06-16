@@ -15,6 +15,19 @@
 # Agent tooling: tracked in git. Only nested git worktrees stay out (they're checkouts, not files git can commit).
 !.claude/
 !.agents/
+!.opencode/
+!.opencode/skills/
+!.opencode/skills/opencode-fray/
+!.opencode/skills/opencode-fray/SKILL.md
+!.opencode/plugins/
+!.opencode/plugins/fray.ts
+!.opencode/commands/
+!.opencode/commands/fray.md
+!.opencode/commands/fray-validate.md
+.opencode/node_modules/
+.opencode/package.json
+.opencode/package-lock.json
+.opencode/bun.lock
 .claude/worktrees/
 
 # fray control surface: the live board + thread files are force-committed (durable across parallel agents on main, same regime as the old epics/final-polish/todo.md); the churn stays ignored. Order matters — negations follow the broad `.*` ignore above, then the churn re-ignores follow the negations.
