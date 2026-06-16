@@ -236,7 +236,7 @@ pub const ENGINE_VERBS: &[VerbSpec] = &[
         aube_args: "commands::create::CreateArgs",
     },
     // `init` is deliberately NOT registered: the spelling is reserved for
-    // nub's own project init (Colin owns the verb), not the engine's
+    // nub's own project init (the maintainer owns the verb), not the engine's
     // npm-style manifest scaffold. cli.rs answers `nub init` with a
     // "nub's own init is coming" note instead of a PM redirect.
     // Workspace fanout meta-verb. Registered so it errors with the honest
@@ -634,7 +634,7 @@ fn engine_session_inner(dir: Option<&Path>, noise: ConfigScopeNoise) -> Result<E
     engine_brand_preflight();
     let cwd = std::env::current_dir()?;
     let detected = resolve_identity_walk_up(&cwd)?;
-    // Role-first lifecycle UA (two-mode model, Colin 2026-06-10): in compat
+    // Role-first lifecycle UA (two-mode model, the maintainer 2026-06-10): in compat
     // mode nub plays the incumbent PM's role completely, so the UA dep
     // postinstalls sniff leads with that PM's token (`pnpm/<ver> nub/<ver>
     // node/v<ver> …`, nub always second); under nub identity or in a fresh
@@ -1208,7 +1208,7 @@ pub(crate) fn engine_brand_preflight() {
     // override is read via `config_env("CACHE_DIR")` → `NUB_CACHE_DIR` under nub
     // (the branded `AUBE_CACHE_DIR` is never read under nub).
     identity::register();
-    // Config surface follows role (two-mode model, Colin 2026-06-10): under
+    // Config surface follows role (two-mode model, the maintainer 2026-06-10): under
     // NUB identity the pnpm surface is OFF — `pnpm-workspace.yaml` unread and
     // the `package.json#pnpm.*` namespace not consulted (the `manifest_namespace
     // = ""` root carries top-level `workspaces` (+ catalogs), `overrides`,
@@ -1262,7 +1262,7 @@ pub(crate) fn engine_brand_preflight() {
             // A stray pnpm-workspace.yaml under nub identity (branch merge,
             // tutorial copy-paste) is ignore-with-warning, never read and never
             // silent: deterministic nub-pure behavior, one warning, remedies
-            // named (Colin 2026-06-10, supersedes read-with-warning). The read
+            // named (the maintainer 2026-06-10, supersedes read-with-warning). The read
             // itself is already gated off by `read_branded_pnpm_config = false`.
             if dir.join("pnpm-workspace.yaml").is_file() {
                 eprintln!(
