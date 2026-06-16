@@ -1,6 +1,6 @@
 # `setup-nub` — field-for-field `actions/setup-node` compatibility design
 
-> **Status: PROPOSAL (2026-06-15). DESIGN ONLY — not API-locked.** The action's input/output contract is a NEW PUBLIC SURFACE the maintainer owns. Every "hard question" decision below is a recommendation that routes to the maintainer for sign-off (see [Decisions needing sign-off](#decisions-needing-sign-off)). The v1 action (`setup/action.yml`, `d9ff98e`) stays the working shipped version; the [proposed action.yml](#proposed-actionyml) here is a draft.
+> **Status: PROPOSAL (2026-06-15). DESIGN ONLY — not API-locked.** The action's input/output contract is a NEW PUBLIC SURFACE. Every "hard question" decision below is a recommendation that needs maintainer sign-off (see [Decisions needing sign-off](#decisions-needing-sign-off)). The v1 action (`setup/action.yml`, `d9ff98e`) stays the working shipped version; the [proposed action.yml](#proposed-actionyml) here is a draft.
 
 ## What `setup-nub` is *for*
 
@@ -68,7 +68,7 @@ The central fact that reshapes everything: **nub already does jobs (1) and (3) i
 - **(ii) Expose `node-version`, pre-provision it.** Action runs `nub node install <v>` so the toolchain is cached/warm before the first `nub` call. Honors the input meaningfully (warms the cache, output reflects it) without lying about ownership. Cost: a little surface; a subtle semantic shift (it pre-warms, doesn't pin — if `.node-version` says 18 and the input says 20, nub still runs the project pin 18 at runtime, and we'd warn on the mismatch).
 - **(iii) `node-version-file` passthrough.** Read the file, pre-provision. Redundant with nub's own resolution but explicit.
 
-**RECOMMENDATION: (ii) + a thin (iii).** Expose `node-version` and `node-version-file` as **pre-provisioning hints** (they call `nub node install`), documented as warm-cache optimizations, not pins. Empty inputs = nub resolves+provisions lazily (the headline). **Drop `check-latest` and `architecture` from v1** (N/A — nub's resolver and platform selection already do the right thing; add only on real demand). This keeps the drop-in promise (the input is honored), respects nub's ownership (it's a warm-up, not a pin), and keeps the surface minimal. **Mismatch rule to confirm with the maintainer:** if the pre-provision input disagrees with the project's resolved pin, the action emits a `core.warning` and nub's runtime pin still wins — the action never overrides the project's declared Node.
+**RECOMMENDATION: (ii) + a thin (iii).** Expose `node-version` and `node-version-file` as **pre-provisioning hints** (they call `nub node install`), documented as warm-cache optimizations, not pins. Empty inputs = nub resolves+provisions lazily (the headline). **Drop `check-latest` and `architecture` from v1** (N/A — nub's resolver and platform selection already do the right thing; add only on real demand). This keeps the drop-in promise (the input is honored), respects nub's ownership (it's a warm-up, not a pin), and keeps the surface minimal. **Mismatch rule (needs maintainer confirmation):** if the pre-provision input disagrees with the project's resolved pin, the action emits a `core.warning` and nub's runtime pin still wins — the action never overrides the project's declared Node.
 
 ### HQ2 — `cache` / `cache-dependency-path` (highest-value field)
 
@@ -96,7 +96,7 @@ Keying on the lockfile (`cache-dependency-path`, default = auto-detect the prese
 
 **Input shape.** `cache: true|false` (boolean, default `false` for v1 — opt-in, matching `pnpm/action-setup`'s conservative default) + `cache-dependency-path` (glob, default = auto-detect). NOT a pm-name enum like `setup-node` — nub has one store.
 
-**RECOMMENDATION:** ship `cache` (boolean) + `cache-dependency-path` in v1; cache the three dirs above with the keyed `restore-keys` ladder; default `cache: false`. This is the single most valuable field and worth getting concrete. **Open sub-question for the maintainer:** default `cache` to `true` (aggressive, setup-node-like — most CI wants it) or `false` (conservative, pnpm-like — opt-in)? Recommend **`false` for v1**, flip to `true` once the cache paths prove out on the smoke matrix.
+**RECOMMENDATION:** ship `cache` (boolean) + `cache-dependency-path` in v1; cache the three dirs above with the keyed `restore-keys` ladder; default `cache: false`. This is the single most valuable field and worth getting concrete. **Open sub-question (needs maintainer sign-off):** default `cache` to `true` (aggressive, setup-node-like — most CI wants it) or `false` (conservative, pnpm-like — opt-in)? Recommend **`false` for v1**, flip to `true` once the cache paths prove out on the smoke matrix.
 
 **Implementation primitives (don't hardcode paths).** nub exposes scriptable commands the action should lean on instead of literal paths: `nub store path` prints the resolved CAS store dir (`store_config_family.rs:13-15`) — derive the `actions/cache` path from it rather than hardcoding `~/.local/share/nub/store/v1`, so an `XDG_DATA_HOME` override or a future layout change doesn't silently break caching. For an explicit pre-warm beyond restore, `nub store add <pkg>` populates the global store without touching `node_modules` (`wiki/commands/pm/store.md:28`) — though for CI the simpler warm path is just `nub ci` after a cache restore.
 
@@ -104,7 +104,7 @@ Keying on the lockfile (`cache-dependency-path`, default = auto-detect the prese
 
 **The brand-boundary check passes cleanly.** `setup-node` writes a project-level `.npmrc` with the registry + `:_authToken=${NODE_AUTH_TOKEN}` and exports `NPM_CONFIG_USERCONFIG` to point at it. nub's PM reads exactly that standard `.npmrc` (registry, `_authToken`, `<scope>:registry`, `NPM_TOKEN` — `publish_family.rs:25`, `aube-resolver/error.rs:335`). So `setup-nub` writes the **identical neutral `.npmrc`** `setup-node` does — no branded file, no `nub`-named config, fully consistent with the symmetric brand boundary (nub never emits its brand into your config and reads only neutral fields).
 
-**RECOMMENDATION: MIRROR `registry-url` / `scope` / `token` exactly** (same `.npmrc` lines, same `NODE_AUTH_TOKEN` env contract, same `RUNNER_TEMP/.npmrc` + `NPM_CONFIG_USERCONFIG` export). **Mirror `always-auth`** too (low priority). The auth story is byte-for-byte `setup-node`'s — that's the point, and it's brand-clean because the file is neutral. **Confirm with the maintainer:** reuse `setup-node`'s `NODE_AUTH_TOKEN` env-var name (yes — it's the ecosystem convention every workflow already sets; a `NUB_AUTH_TOKEN` rename would break the drop-in and add brand surface for no gain).
+**RECOMMENDATION: MIRROR `registry-url` / `scope` / `token` exactly** (same `.npmrc` lines, same `NODE_AUTH_TOKEN` env contract, same `RUNNER_TEMP/.npmrc` + `NPM_CONFIG_USERCONFIG` export). **Mirror `always-auth`** too (low priority). The auth story is byte-for-byte `setup-node`'s — that's the point, and it's brand-clean because the file is neutral. **To confirm:** reuse `setup-node`'s `NODE_AUTH_TOKEN` env-var name (yes — it's the ecosystem convention every workflow already sets; a `NUB_AUTH_TOKEN` rename would break the drop-in and add brand surface for no gain).
 
 ### HQ4 — Outputs
 
@@ -113,7 +113,7 @@ Keying on the lockfile (`cache-dependency-path`, default = auto-detect the prese
 - `node-version` — the Node version nub resolves for the project (mirrors `setup-node`'s output name so downstream steps keep working). Empty when nothing was provisioned.
 - `cache-hit` — boolean from cache restore (only meaningful with `cache: true`).
 
-**Confirm with the maintainer:** is emitting `node-version` worth the extra `nub node which` call on every run even when no input was given? Recommend yes — it's cheap and preserves the drop-in output contract.
+**To confirm:** is emitting `node-version` worth the extra `nub node which` call on every run even when no input was given? Recommend yes — it's cheap and preserves the drop-in output contract.
 
 ### HQ5 — Version-selection naming (`version` vs `node-version`)
 
@@ -125,7 +125,7 @@ with:
   nub-version: 0.0.44      # which nub
   node-version: 20         # pre-provision this Node (warm cache)
 ```
-This is the cleanest disambiguation and matches `oven-sh/setup-bun`'s `bun-version` convention. **This is a public-API rename — needs the maintainer's explicit sign-off**, and the deprecation-alias window is a courtesy since the action is new and barely adopted (could also hard-rename now).
+This is the cleanest disambiguation and matches `oven-sh/setup-bun`'s `bun-version` convention. **This is a public-API rename — needs maintainer sign-off**, and the deprecation-alias window is a courtesy since the action is new and barely adopted (could also hard-rename now).
 
 ## Proposed `action.yml`
 
@@ -223,7 +223,7 @@ runs:
         # echo "node-version=<resolved>" >> "$GITHUB_OUTPUT"
 ```
 
-## Testing plan (the smoke matrix the maintainer asked for)
+## Testing plan (the smoke matrix)
 
 A `.github/workflows/setup-smoke.yml` (in nub's repo) matrixed across `ubuntu-latest`, `macos-latest`, `windows-latest`, triggered on PRs touching `setup/**` and on a schedule. Asserts:
 

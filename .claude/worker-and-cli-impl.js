@@ -10,7 +10,7 @@ export const meta = {
   ],
 }
 
-const ROOT = '/Users/user/Documents/projects/dun'
+const ROOT = process.env.CLAUDE_PROJECT_DIR ?? process.cwd()
 const SUITE = `${ROOT}/tests/node-suite/test`
 
 const ORIENT = `

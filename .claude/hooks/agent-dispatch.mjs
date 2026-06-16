@@ -5,8 +5,8 @@
 //      (a foreground agent blocks the orchestrator turn; a human interjection orphans it).
 //   2) AUTO-APPEND an ORCHESTRATION EPILOGUE to every backgrounded sub-agent's prompt, so
 //      sub-agents always hand back the next links in the chain (follow-ups / self-review /
-//      push-to-CI / next-step). This is the multi-agent chaining pattern (the maintainer, 2026-06-13:
-//      "you often lose the role of a given sub-agent in a broader implementational plan").
+//      push-to-CI / next-step). This is the multi-agent chaining pattern (2026-06-13:
+//      the orchestrator often loses track of a sub-agent's role in a broader implementational plan).
 // Run directly with node (no transpiler). Supersedes agent-must-be-background.sh.
 // FAIL OPEN: any parse error → allow unmodified. A broken dispatch hook must never halt
 // orchestration (the overnight heartbeat itself dispatches through here).
@@ -20,7 +20,7 @@ const EPILOGUE = `
 1. Concrete FOLLOW-UP work your findings/changes imply.
 2. If you implemented something substantial → recommend a SELF-REVIEW pass (a fresh adversarial sub-agent reviewing your diff for correctness/regressions).
 3. If you added/changed code or tests CI should exercise → recommend cutting a push to \`main\` + a CI-watch follow-up to confirm green.
-4. The single most important NEXT STEP, and whether it needs the maintainer (a default/security/product/brand/API-config-env call → recommend-only) or can proceed autonomously.
+4. The single most important NEXT STEP, and whether it needs maintainer sign-off (a default/security/product/brand/API-config-env call → recommend-only) or can proceed autonomously.
 Your FINAL MESSAGE is your whole report to the orchestrator — there is no mid-run channel back to it, so put everything it needs to chain the next step in that final message.
 If you COMMITTED: verify the tree COMPILES at your commit (a parallel agent may share a file — build before committing so you don't ship a broken HEAD). If there are no follow-ups, write "Follow-ups: none."`;
 
@@ -65,8 +65,8 @@ try {
   if (thread) {
     // BULLETPROOF: a THREAD:-tagged dispatch whose .fray/<slug>.md does NOT exist is DENIED.
     // The thread file must be created FIRST (with current context) before any agent runs for it —
-    // the maintainer's paramount rule (2026-06-14): every new/split-off effort gets its file first, or it
-    // gets forgotten. (A genuine one-shot with no thread should carry no THREAD: tag.)
+    // every new/split-off effort gets its file first, or it gets forgotten (2026-06-14).
+    // (A genuine one-shot with no thread should carry no THREAD: tag.)
     if (!existsSync(`${dir}/.fray/${thread}.md`)) {
       emit({
         hookSpecificOutput: {

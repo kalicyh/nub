@@ -3,8 +3,7 @@
 # that sub-agents are ALWAYS dispatched with run_in_background:true, never
 # foreground/blocking. A foreground agent blocks the orchestrator turn, and a
 # human interjection mid-run orphans its work. Documentation kept failing to
-# change the behavior, so this denies the call outright (the maintainer, 2026-06-13:
-# "take MORE EXTREME action … plugin maybe?").
+# change the behavior, so this denies the call outright (2026-06-13).
 #
 # Allow  → exit 0, no output.
 # Deny   → emit PreToolUse permissionDecision=deny with a re-send reminder.
