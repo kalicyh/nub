@@ -6,11 +6,12 @@
  * Usage:
  *   printf '%s' "$PROMPT" | node .agents/plugins/fray-codex/scripts/codex-dispatch-preflight.mjs \
  *     --thread <slug> --agent-type <explorer|worker|default> --label "Plain English task"
- *   # Add --dry-run to emit the prompt without writing the ledger.
+ *   # Add --dry-run to emit without writing the ledger.
+ *   # Add --json to emit {dispatch_id, thread, prompt, ledger_row}.
  *
  * It validates that the thread file exists, prefixes THREAD when needed,
  * adds a durable FRAY_DISPATCH_ID, appends the orchestration epilogue, records
- * the dispatch ledger, and emits the prompt to pass to multi_agent_v1.spawn_agent.
+ * the dispatch ledger, and emits the prompt to pass to Codex's sub-agent spawn tool.
  */
 
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
@@ -50,9 +51,20 @@ const serviceTier = arg('--service-tier') ?? '';
 const forkContext = arg('--fork-context');
 const dispatchId = arg('--dispatch-id') ?? `fray-${new Date().toISOString().replace(/[-:.TZ]/g, '')}-${randomUUID().slice(0, 8)}`;
 const dryRun = process.argv.includes('--dry-run');
+const json = process.argv.includes('--json');
 
 if (!threadRaw) {
   console.error('codex-dispatch-preflight: --thread <slug> is required for thread-scoped dispatches');
+  process.exit(2);
+}
+
+if (
+  forkContext === 'true' &&
+  ((agentType && agentType !== 'inherited') || model || reasoningEffort || serviceTier)
+) {
+  console.error(
+    'codex-dispatch-preflight: fork-context=true inherits agent type/model/effort; omit --agent-type/--model/--reasoning-effort/--service-tier, or use --agent-type inherited only for ledger labeling.',
+  );
   process.exit(2);
 }
 
@@ -96,25 +108,31 @@ if (!prompt.includes('[ORCHESTRATION EPILOGUE')) {
   prompt += EPILOGUE;
 }
 
+const ledgerRow = {
+  ts: new Date().toISOString(),
+  tool: 'codex.spawn_agent',
+  dispatch_id: dispatchId,
+  agent_type: agentType,
+  label,
+  thread,
+  model,
+  reasoning_effort: reasoningEffort,
+  service_tier: serviceTier,
+  fork_context: forkContext,
+  agent_id: '',
+  nickname: '',
+  reconciled: false,
+};
+
 if (!dryRun) {
   appendFileSync(
     join(PROJECT_DIR, '.fray', '.dispatch-ledger.jsonl'),
-    `${JSON.stringify({
-      ts: new Date().toISOString(),
-      tool: 'codex.spawn_agent',
-      dispatch_id: dispatchId,
-      agent_type: agentType,
-      label,
-      thread,
-      model,
-      reasoning_effort: reasoningEffort,
-      service_tier: serviceTier,
-      fork_context: forkContext,
-      agent_id: '',
-      nickname: '',
-      reconciled: false,
-    })}\n`,
+    `${JSON.stringify(ledgerRow)}\n`,
   );
 }
 
-process.stdout.write(prompt.endsWith('\n') ? prompt : `${prompt}\n`);
+if (json) {
+  process.stdout.write(`${JSON.stringify({ dispatch_id: dispatchId, thread, prompt, ledger_row: ledgerRow }, null, 2)}\n`);
+} else {
+  process.stdout.write(prompt.endsWith('\n') ? prompt : `${prompt}\n`);
+}

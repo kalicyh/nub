@@ -31,10 +31,10 @@ Use the output to reconcile returned agents, surface pending questions, and choo
 
 Thread frontmatter must include `title` and `status`. Status vocabulary is:
 
-`todo`, `enqueued`, `active`, `blocked`, `needs-decision`, `done`, `dismissed`.
+`todo`, `planned`, `enqueued`, `active`, `blocked`, `needs-decision`, `done`, `dismissed`.
 
 - `enqueued` means ready to run, fully scoped, and deliberately held until a named in-flight agent/thread completes. This is a sequencing dependency, not a human gate. Use it when the next dispatch would edit the same files an in-flight agent owns, or when it genuinely needs that agent's output. `## Next step` must name what it is waiting on, and when that agent returns, dispatch or resume the enqueued work in the same turn.
-- In Codex, prefer `multi_agent_v1.send_input` when the follow-up clearly belongs inside an existing live agent's scope and can be delivered safely. Use `enqueued` when the follow-up is a distinct thread, needs canonical board visibility, or should run only after the current agent returns.
+- In Codex, prefer adding input to an existing live agent when the follow-up clearly belongs inside that agent's current scope and can be delivered safely. Use `enqueued` when the follow-up is a distinct unit, needs canonical board visibility, or should run only after the current agent returns.
 - `blocked` means waiting on a human, external event, or unresolved decision with no in-session trigger.
 - `done` and `dismissed` are terminal and kept. Never delete terminal threads just to reduce board noise.
 
@@ -87,18 +87,64 @@ Before spawning a thread-scoped sub-agent, run the dispatch preflight. This is t
 For a thread-scoped sub-agent prompt:
 
 ```bash
-printf '%s' "$PROMPT" | node .agents/plugins/fray-codex/scripts/codex-dispatch-preflight.mjs --thread <slug> --agent-type <explorer|worker|default>
+printf '%s' "$PROMPT" | node .agents/plugins/fray-codex/scripts/codex-dispatch-preflight.mjs \
+  --thread <slug> \
+  --agent-type <explorer|worker|default> \
+  --label "<short task label>" \
+  --model "<model if overridden>" \
+  --reasoning-effort "<effort if overridden>" \
+  --fork-context <true|false> \
+  --dispatch-id "<stable id if you already made one>"
 ```
 
 The preflight:
 
 - denies missing `.fray/<slug>.md` by exiting nonzero,
 - ensures the prompt starts with `THREAD: <slug>`,
+- ensures the prompt includes `FRAY_DISPATCH_ID: <id>`,
 - appends the orchestration epilogue,
 - writes `.fray/.dispatch-ledger.jsonl`.
 
-Paste the emitted prompt into `multi_agent_v1.spawn_agent`. For a true one-shot with no thread, do not use `THREAD:`.
-Use `--dry-run` only when testing the preflight itself; real dispatches should write the ledger.
+Pass the emitted prompt to the Codex sub-agent spawn tool. Add `--json` when you want the generated `dispatch_id` and prompt as structured output for scripting. For a true one-shot with no thread, do not use `THREAD:`. Use `--dry-run` only when testing the preflight itself; real dispatches should write the ledger.
+
+After the spawn tool returns an agent id/path and any nickname/display name, attach it to the ledger:
+
+```bash
+node .agents/plugins/fray-codex/scripts/codex-ledger.mjs attach-agent \
+  --dispatch-id "<id>" \
+  --agent-id "<agent id/path>" \
+  --nickname "<nickname if any>"
+```
+
+When you fold the return into the thread, mark the dispatch reconciled:
+
+```bash
+node .agents/plugins/fray-codex/scripts/codex-ledger.mjs mark-reconciled --dispatch-id "<id>"
+```
+
+This ledger is the Codex Fray metadata layer. Do not rely on Codex accepting arbitrary metadata fields on the agent tool. If the active Codex tool schema supports labels, roles, models, effort, service tiers, structured `items`, or `fork_context`, use them; still put `THREAD` and `FRAY_DISPATCH_ID` in the prompt and ledger because those survive compaction, copied prompts, and tool-schema changes.
+
+## Codex Sub-Agent Lifecycle
+
+Use the active Codex agent tools directly when they are available in the current tool list. Match the exact schema exposed in the turn; do not invent fields that are not present.
+
+- Spawn a new agent for a new unit of work. A new unit has its own scope, deliverable, verification, and `## Follow-ups` report. Thread-scoped spawns must be preflighted first.
+- Add input to a live agent when new information belongs inside that agent's existing scope, especially when the agent already owns the relevant files. Include the same `THREAD` and `FRAY_DISPATCH_ID` in the added message, state whether this is a scope change or extra context, and require the agent to include the instruction in its final `## Follow-ups` report.
+- Resume an existing completed or paused agent only when Codex exposes a resume primitive that preserves its prior context. If the tool does not guarantee preserved context, treat the follow-up as a fresh spawn and make the prompt self-contained.
+- Wait for an agent when the tool surface has an explicit wait primitive and you need its result before deciding. Waiting is orchestration, not reconciliation; still fold the returned facts into `.fray/<thread>.md`.
+- Close or release an agent after its result is folded if Codex exposes a close primitive. Do not close an agent before reconciling its return.
+
+`enqueued` is not a substitute for live communication. If a running agent can safely receive additional input and that input belongs to its scope, send it. Use `enqueued` for a separate follow-up dispatch that should be visible on the board and start only after a named dependency returns.
+
+## Forked Versus Fresh Context
+
+Codex sub-agents may support a context fork option. Treat it as an execution-context choice, not as a replacement for a self-contained prompt.
+
+- Use forked context when the agent should inherit the current chat's recent decisions, tool results, or live orchestration state and the work is a continuation of the current reasoning.
+- Use fresh context for clean-room reviews, adversarial checks, independent reproduction, or any task where inherited assumptions could bias the result.
+- In this Codex tool surface, full-history forked agents inherit the parent agent type, model, and reasoning effort. Do not pass role/model/effort overrides when spawning with `fork_context: true`; the preflight script rejects contradictory fork metadata for the same reason.
+- Forked context can be slower and heavier than a fresh self-contained dispatch. Prefer fresh dispatch unless the inherited conversation is genuinely load-bearing.
+- Always include the codebase map slice, constraints, thread slug, dispatch id, and exact deliverable either way. Forked context is a convenience, not the contract.
 
 ## Sub-Agent Rules
 
