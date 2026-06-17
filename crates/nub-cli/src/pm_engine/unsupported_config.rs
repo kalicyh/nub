@@ -11,7 +11,7 @@
 //!      `enableImmutableInstalls`/`immutablePatterns` → the engine's frozen
 //!      mode (same path `--frozen-lockfile` takes).
 //!   3. `enableScripts: false` (yarn) → force a block-all-builds policy that
-//!      overrides even nub's `defaultTrust` floor.
+//!      overrides even nub's curated default-trust floor.
 //!   4. `dependenciesMeta.*.injected` → auto-switch to the isolated linker (the
 //!      only layout where aube materializes injected copies) instead of
 //!      silently dropping the directive under nub's hoisted default.
@@ -144,7 +144,7 @@ fn yarn_immutable(root: &Path) -> bool {
 
 /// Whether yarn's `enableScripts: false` is set — the security opt-out that
 /// disables ALL lifecycle scripts. When true the install must force a
-/// block-all-builds policy that overrides even nub's `defaultTrust` floor.
+/// block-all-builds policy that overrides even nub's curated default-trust floor.
 pub(crate) fn yarn_scripts_disabled(role: Role, root: &Path) -> bool {
     if role != Role::Yarn {
         return false;
@@ -153,6 +153,38 @@ pub(crate) fn yarn_scripts_disabled(role: Role, root: &Path) -> bool {
         .ok()
         .and_then(|c| yarnrc_top_level_bool(&c, "enableScripts"))
         == Some(false)
+}
+
+/// Whether yarn's `enableNetwork: false` is set in `.yarnrc.yml` — Berry's
+/// network opt-out, which forces an OFFLINE install (serve only on-disk cache,
+/// error on a miss). Berry's `--offline` flag is itself sugar for this config
+/// field, so honoring the field covers both. Maps to `NetworkMode::Offline`,
+/// the same mode nub's `--offline` CLI flag takes. The CLI flag still composes
+/// on top (it's OR'd in `run_install`/`run_ci`).
+pub(crate) fn yarn_network_disabled(role: Role, root: &Path) -> bool {
+    if role != Role::Yarn {
+        return false;
+    }
+    std::fs::read_to_string(root.join(".yarnrc.yml"))
+        .ok()
+        .and_then(|c| yarnrc_top_level_bool(&c, "enableNetwork"))
+        == Some(false)
+}
+
+/// Whether a classic `.yarnrc` (Yarn 1, NOT `.yarnrc.yml`) configures a
+/// `yarn-offline-mirror` — a local tarball-mirror directory installs are meant
+/// to read from. nub installs from its content-addressable store and the
+/// registry; it has no affordance to read a configured mirror dir, so in
+/// offline mode (where the mirror is the user's intended package source) this
+/// must FAIL LOUD rather than silently hit the public registry. Online, the
+/// mirror is moot, so this is consulted only on the offline-mode path.
+///
+/// The classic `.yarnrc` is a space-separated `key "value"` format (parsed by
+/// Yarn 1's own lockfile parser), distinct from Berry's `.yarnrc.yml`.
+fn yarn_offline_mirror_configured(root: &Path) -> bool {
+    std::fs::read_to_string(root.join(".yarnrc"))
+        .ok()
+        .is_some_and(|c| classic_yarnrc_has_key(&c, "yarn-offline-mirror"))
 }
 
 /// Whether the root (or any workspace member) manifest declares
@@ -288,6 +320,30 @@ fn scan_fatal(role: Role, root: &Path) -> Option<FatalField> {
         }
         Role::Pnpm | Role::Bun | Role::Nub => None,
     }
+}
+
+/// FATAL when offline mode is active AND a classic `.yarnrc` `yarn-offline-mirror`
+/// is configured: nub installs from its content-addressable store and the
+/// registry and cannot read a user-configured offline-mirror directory, so in
+/// offline mode (where that mirror is the user's intended package source)
+/// silently falling back would diverge. Returns the abort error, or `None` when
+/// there's no mirror configured (or offline mode is off — the caller gates on
+/// that, since a mirror is moot when online).
+///
+/// Gated by the active [`Role`] (only consulted for yarn) and called from the
+/// install path once the effective offline state is known — distinct from
+/// [`scan_unsupported_config`]'s unconditional fatals.
+pub(crate) fn offline_mirror_fatal(role: Role, root: &Path) -> Option<anyhow::Error> {
+    if role != Role::Yarn || !yarn_offline_mirror_configured(root) {
+        return None;
+    }
+    Some(anyhow::anyhow!(
+        "nub: `yarn-offline-mirror` (yarn) cannot be honored in offline mode — \
+         nub installs from its content-addressable store and the registry, not a \
+         configured offline-mirror directory. Run `nub install` once while online \
+         to populate nub's store, then remove `yarn-offline-mirror` from .yarnrc \
+         (or drop offline mode). [ERR_NUB_UNSUPPORTED_CONFIG]"
+    ))
 }
 
 fn scan_warn(role: Role, root: &Path) -> Vec<IgnoredField> {
@@ -534,6 +590,28 @@ fn yarnrc_block_nonempty(content: &str, key: &str) -> bool {
     false
 }
 
+/// Whether a CLASSIC `.yarnrc` (Yarn 1) sets a non-empty value for `key`.
+/// Classic `.yarnrc` is a `key "value"` / `key value` line format (Yarn 1's
+/// own lockfile dialect), unrelated to Berry's `.yarnrc.yml`. A bare key with
+/// no value, or an explicitly empty `""`, does not count as configured.
+fn classic_yarnrc_has_key(content: &str, key: &str) -> bool {
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        // `key value` / `key "value"`: split on the first whitespace.
+        let Some((k, rest)) = line.split_once(char::is_whitespace) else {
+            continue;
+        };
+        if k.trim() != key {
+            continue;
+        }
+        return !strip_yarnrc_scalar(rest).is_empty();
+    }
+    false
+}
+
 /// Strip surrounding quotes / trailing `# comment` from a yarnrc scalar.
 fn strip_yarnrc_scalar(rest: &str) -> String {
     let rest = rest.trim();
@@ -638,6 +716,73 @@ mod tests {
         assert!(yarn_scripts_disabled(Role::Yarn, d.path()));
         // Not yarn role ⇒ ignored.
         assert!(!yarn_scripts_disabled(Role::Npm, d.path()));
+    }
+
+    #[test]
+    fn yarn_enable_network_false_maps_to_offline() {
+        let d = tmp();
+        fs::write(d.path().join(".yarnrc.yml"), "enableNetwork: false\n").unwrap();
+        assert!(yarn_network_disabled(Role::Yarn, d.path()));
+        // enableNetwork: true (the default) is not offline.
+        fs::write(d.path().join(".yarnrc.yml"), "enableNetwork: true\n").unwrap();
+        assert!(!yarn_network_disabled(Role::Yarn, d.path()));
+        // Non-yarn role ⇒ never consulted.
+        fs::write(d.path().join(".yarnrc.yml"), "enableNetwork: false\n").unwrap();
+        assert!(!yarn_network_disabled(Role::Npm, d.path()));
+    }
+
+    #[test]
+    fn offline_mirror_in_classic_yarnrc_is_fatal_for_yarn() {
+        let d = tmp();
+        // Classic .yarnrc (NOT .yarnrc.yml): space-separated `key "value"`.
+        fs::write(
+            d.path().join(".yarnrc"),
+            "yarn-offline-mirror \"./npm-packages-offline-cache\"\n",
+        )
+        .unwrap();
+        let err = offline_mirror_fatal(Role::Yarn, d.path()).expect("mirror must be fatal");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("yarn-offline-mirror"),
+            "names the field: {msg}"
+        );
+        assert!(
+            msg.contains("ERR_NUB_UNSUPPORTED_CONFIG"),
+            "carries the code: {msg}"
+        );
+        assert!(
+            msg.contains("online"),
+            "states the remedy (populate while online): {msg}"
+        );
+    }
+
+    #[test]
+    fn offline_mirror_not_configured_is_not_fatal() {
+        let d = tmp();
+        // No .yarnrc at all.
+        assert!(offline_mirror_fatal(Role::Yarn, d.path()).is_none());
+        // A .yarnrc without the mirror key.
+        fs::write(
+            d.path().join(".yarnrc"),
+            "registry \"https://registry.npmjs.org\"\n",
+        )
+        .unwrap();
+        assert!(offline_mirror_fatal(Role::Yarn, d.path()).is_none());
+        // An empty mirror value does not count as configured.
+        fs::write(d.path().join(".yarnrc"), "yarn-offline-mirror \"\"\n").unwrap();
+        assert!(offline_mirror_fatal(Role::Yarn, d.path()).is_none());
+    }
+
+    #[test]
+    fn offline_mirror_only_consulted_for_yarn_role() {
+        let d = tmp();
+        fs::write(
+            d.path().join(".yarnrc"),
+            "yarn-offline-mirror \"./cache\"\n",
+        )
+        .unwrap();
+        // The .yarnrc belongs to yarn; under another role it isn't read.
+        assert!(offline_mirror_fatal(Role::Npm, d.path()).is_none());
     }
 
     #[test]
