@@ -16,7 +16,7 @@ type Line = { text: string; prompt?: boolean; dim?: boolean };
 
 const lines: Line[] = [
   { text: 'nub pm shim', prompt: true },
-  { text: 'nub pm shim: 7 entries in ~/.nub/shims (7 created)', dim: true },
+  { text: 'nub pm shim: 6 entries in ~/.nub/shims (6 created)', dim: true },
   { text: '  PATH: added ~/.nub/shims to PATH (~/.zshrc) — restart your shell', dim: true },
   { text: '' },
   { text: 'which pnpm', prompt: true },
