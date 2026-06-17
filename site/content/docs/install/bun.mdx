@@ -51,9 +51,6 @@ ERR_NUB_LOCKFILE_PARSE
       (binary format) is not supported — run `bun install --save-text-
       lockfile` to generate a bun.lock text file first, or upgrade to bun 1.2+
       where text is the default
-
-$ echo $?
-11
 ```
 
 Run `bun install --save-text-lockfile` once to migrate, then Nub round-trips the resulting `bun.lock`.

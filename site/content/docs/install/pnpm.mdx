@@ -6,6 +6,7 @@ description: pnpm is the package manager Nub mirrors most closely — native ver
 Nub mirrors pnpm most closely: the CLI surface, the isolated `node_modules` layout, and the lockfile. When pnpm is the incumbent — a `packageManager: "pnpm@…"` field or an existing `pnpm-lock.yaml` — Nub reads and writes pnpm's own `pnpm-lock.yaml` in its native format, and honors pnpm's config. Everything below is gated on that.
 
 <CompatTable
+  incumbent="pnpm"
   rows={[
     { feature: <code>pnpm-lock.yaml</code>, status: 'yes', note: 'v9, read + write' },
     { feature: <code>pnpm-workspace.yaml</code>, status: 'yes' },
@@ -46,9 +47,6 @@ Error: ERR_NUB_LOCKFILE_UNSUPPORTED_FORMAT
 
   × pnpm-lock.yaml is lockfileVersion 6.0 (pnpm 8); nub reads v9 (pnpm 9+).
   help: Re-lock under pnpm 9+ (`pnpm install`), then `nub install`.
-
-$ echo $?
-1                                                       # ❌ refused, nothing linked
 ```
 
 The refusal names the detected version (v5.4 reads `(pnpm 7)`). Migrate by running a one-time `pnpm install` under pnpm 9+ to upgrade the lockfile to v9, then `nub install`.

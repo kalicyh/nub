@@ -55,10 +55,7 @@ ERR_NUB_LOCKFILE_PARSE
 
   × failed to parse lockfile          # ❌ v1 is unsupported — install refused
   ╰─▶ failed to parse lockfile /path/to/package-lock.json:
-      package-lock.json lockfileVersion 1 is not supported (need v2 or v3)
-$ echo $?
-11
-```
+      package-lock.json lockfileVersion 1 is not supported (need v2 or v3)```
 
 Run `npm install` once under npm 7+ to upgrade the lock to v2/v3, then Nub reads it.
 
