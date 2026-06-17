@@ -73,25 +73,37 @@ Requirements:
 - `pnpm`
 - Rust / Cargo
 
-From a fresh clone:
+From a fresh clone, run the screenshot-friendly pure-dispatch benchmark:
 
 ```bash
 cd /path/to/nub
 git submodule update --init --depth 1 vendor/aube
 cargo build --release -p nub-cli
-bash tests/bench/run-script-runner-vs-node.sh
+bash tests/bench/run-script-runner-vs-node.sh --fixture true
 ```
 
 The harness defaults to `target/release/nub` inside the repo. To benchmark a different binary, pass its absolute path with `NUB=/path/to/nub`:
 
 ```bash
-NUB="$PWD/target/release/nub" bash tests/bench/run-script-runner-vs-node.sh
+NUB="$PWD/target/release/nub" bash tests/bench/run-script-runner-vs-node.sh --fixture true
 ```
 
-For a quick smoke test, lower the sample count and bypass the quiet-machine gate:
+For the empty-Node-body variant, run:
 
 ```bash
-bash tests/bench/run-script-runner-vs-node.sh --runs 1 --warmup 0 --max-load 999
+bash tests/bench/run-script-runner-vs-node.sh --fixture node-e
+```
+
+For both fixtures in one pass, run:
+
+```bash
+bash tests/bench/run-script-runner-vs-node.sh --fixture both
+```
+
+For a publication-grade quiet-box run, raise the sample count and set a real load gate:
+
+```bash
+bash tests/bench/run-script-runner-vs-node.sh --fixture true --runs 100 --warmup 30 --max-load 2
 ```
 
 The wrapper runs this `hyperfine` shape for each fixture:

@@ -36,18 +36,21 @@ esac
 RESULTS_DIR="$REPO_ROOT/tests/bench/results"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
-# Default to a high-sample run; lower these for smoke tests.
-WARMUP=10
-RUNS=100
-MAX_LOAD=2.0   # refuse to time on a noisy box; wait until 1-min load drops below this
+# Defaults are screenshot-friendly. Increase these for publication-grade runs.
+WARMUP=20
+RUNS=30
+MAX_LOAD=999   # pass --max-load 2 for a quiet-box publication run
+FIXTURE_FILTER="both"
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --warmup)   WARMUP="$2";   shift 2 ;;
-    --runs)     RUNS="$2";     shift 2 ;;
-    --max-load) MAX_LOAD="$2"; shift 2 ;;
+    --warmup)   WARMUP="$2";          shift 2 ;;
+    --runs)     RUNS="$2";            shift 2 ;;
+    --max-load) MAX_LOAD="$2";        shift 2 ;;
+    --fixture)  FIXTURE_FILTER="$2";  shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
+case "$FIXTURE_FILTER" in true|node-e|both) ;; *) echo "ERROR: --fixture must be true, node-e, or both" >&2; exit 1 ;; esac
 
 [[ -x "$NUB" ]] || { echo "ERROR: nub not found at $NUB" >&2; exit 1; }
 command -v hyperfine &>/dev/null || { echo "ERROR: hyperfine not found." >&2; exit 1; }
@@ -143,8 +146,14 @@ run_fixture() {  # $1=tag $2=dir
   echo "  [results saved → $out]"
 }
 
-run_fixture "true"    "$FIX_TRUE"
-run_fixture "node-e"  "$FIX_NODE"
+case "$FIXTURE_FILTER" in
+  true)   run_fixture "true" "$FIX_TRUE" ;;
+  node-e) run_fixture "node-e" "$FIX_NODE" ;;
+  both)
+    run_fixture "true" "$FIX_TRUE"
+    run_fixture "node-e" "$FIX_NODE"
+    ;;
+esac
 
 echo ""
 echo "================================================================"
