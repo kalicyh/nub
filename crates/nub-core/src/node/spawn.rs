@@ -1339,6 +1339,105 @@ pub fn cleanup_shim() {
     }
 }
 
+/// Cap on directories examined in a single reaper sweep. A sweep is best-effort
+/// and bounded so it can never spin on a pathologically large `TMPDIR`; any
+/// leftover stale dirs are simply collected on a later run.
+const REAP_SCAN_CAP: usize = 4096;
+
+/// `nub run`/exec creates a process-wide PATH shim dir `nub-node-shim-<pid>`,
+/// reclaimed on normal exit by [`cleanup_shim`]. A run that is KILLED or crashes
+/// before that drop runs leaks its dir, so stale dirs accumulate unbounded in
+/// `TMPDIR` over time. This reaps them: it scans the temp dir for
+/// `nub-node-shim-<pid>` entries whose `<pid>` is no longer a live process and
+/// removes those, leaving live runs' dirs (including any concurrent nub run, and
+/// our own, which [`cleanup_shim`] owns) untouched.
+///
+/// HOT PATH: this is NOT called on the run/spawn/teardown critical path. It does
+/// a directory scan + per-entry `stat`, which is exactly the synchronous cost the
+/// latency-sensitive run path must not pay. Drive it ONLY off the thread via
+/// [`spawn_stale_shim_reaper`], which detaches it so the run never waits on it.
+pub fn reap_stale_shims() {
+    reap_stale_shims_in(&env::temp_dir(), std::process::id(), pid_is_alive);
+}
+
+/// Core of [`reap_stale_shims`], parameterized over the temp dir, this process's
+/// pid, and a pid-liveness probe so it is unit-testable without touching the
+/// shared global temp dir or real process state.
+fn reap_stale_shims_in(temp: &Path, self_pid: u32, is_alive: impl Fn(u32) -> bool) {
+    let Ok(entries) = fs::read_dir(temp) else {
+        return;
+    };
+
+    for entry in entries.flatten().take(REAP_SCAN_CAP) {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(pid_str) = name.strip_prefix("nub-node-shim-") else {
+            continue;
+        };
+        let Ok(pid) = pid_str.parse::<u32>() else {
+            continue;
+        };
+        // Never touch our own dir (cleanup_shim owns it) or a live process's dir.
+        if pid == self_pid || is_alive(pid) {
+            continue;
+        }
+        let _ = fs::remove_dir_all(entry.path());
+    }
+}
+
+/// Spawn [`reap_stale_shims`] on a DETACHED background thread so the sweep's
+/// directory scan never adds latency to the run/spawn/teardown path. Fire and
+/// forget: if the process exits before the sweep finishes, any not-yet-reaped
+/// stale dirs are collected by a later run. Call once, early.
+pub fn spawn_stale_shim_reaper() {
+    let _ = std::thread::Builder::new()
+        .name("nub-shim-reaper".into())
+        .spawn(reap_stale_shims);
+}
+
+/// Is `pid` a currently-live process? Used by the shim reaper to avoid reaping a
+/// concurrent run's live dir. Conservative on error: a probe that can't decide
+/// reports ALIVE, so an ambiguous case is never reaped (leak-over-data-loss).
+#[cfg(unix)]
+fn pid_is_alive(pid: u32) -> bool {
+    // kill(pid, 0) performs the permission/existence check WITHOUT sending a
+    // signal: 0 → alive; ESRCH → no such process (reapable); EPERM → process
+    // exists but is owned by another user (alive — do not reap).
+    let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if rc == 0 {
+        return true;
+    }
+    !matches!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ESRCH)
+    )
+}
+
+#[cfg(windows)]
+fn pid_is_alive(pid: u32) -> bool {
+    // OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION) succeeds for a live process;
+    // a dead pid yields a null handle (reapable). Anything else (e.g. access
+    // denied on a live process) is treated as alive — conservative, never reap.
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut core::ffi::c_void;
+        fn CloseHandle(h: *mut core::ffi::c_void) -> i32;
+        fn GetLastError() -> u32;
+    }
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const ERROR_INVALID_PARAMETER: u32 = 87;
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if !h.is_null() {
+            CloseHandle(h);
+            return true;
+        }
+        // A dead/never-existed pid fails with ERROR_INVALID_PARAMETER → reapable.
+        // Any other failure (e.g. access denied) → treat as alive, don't reap.
+        GetLastError() != ERROR_INVALID_PARAMETER
+    }
+}
+
 /// The nub-owned default compile-cache dir (`<cache>/nub/v8-compile-cache`),
 /// created best-effort. `None` when the cache root can't be resolved (no HOME) —
 /// the spawn simply proceeds uncached, never errors.
@@ -1915,6 +2014,44 @@ mod tests {
 
         cleanup_shim();
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn reaper_removes_dead_pid_dirs_and_spares_live_and_own() {
+        // Isolated scratch temp dir so we never touch the real TMPDIR.
+        let root = env::temp_dir().join(format!("nub-reaper-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        let self_pid = 1000u32;
+        let live_pid = 2000u32; // a concurrent run, still alive
+        let dead_pid = 3000u32; // a run that was killed before cleanup
+
+        let mk = |pid: u32| {
+            let d = root.join(format!("nub-node-shim-{pid}"));
+            fs::create_dir_all(&d).unwrap();
+            fs::write(d.join("node"), b"shim").unwrap();
+            d
+        };
+        let own = mk(self_pid);
+        let live = mk(live_pid);
+        let dead = mk(dead_pid);
+        // A non-shim dir must be ignored entirely.
+        let unrelated = root.join("some-other-tmp");
+        fs::create_dir_all(&unrelated).unwrap();
+
+        // Liveness probe: every pid alive EXCEPT the dead one.
+        reap_stale_shims_in(&root, self_pid, |pid| pid != dead_pid);
+
+        assert!(
+            own.exists(),
+            "the current process's own dir is never reaped"
+        );
+        assert!(live.exists(), "a live concurrent run's dir is never reaped");
+        assert!(!dead.exists(), "a dead pid's leaked dir is reaped");
+        assert!(unrelated.exists(), "non-shim entries are left untouched");
+
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

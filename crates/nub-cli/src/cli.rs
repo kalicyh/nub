@@ -713,6 +713,12 @@ pub fn run() -> Result<i32> {
     }
     let _shim_cleanup = ShimCleanup;
 
+    // Reap PATH shim dirs leaked by runs that were killed / crashed before their
+    // own cleanup ran. Detached background thread (NOT on the spawn/teardown hot
+    // path) so its directory scan adds zero latency to the run; best-effort, any
+    // dir it misses is collected by a later invocation.
+    nub_core::node::spawn::spawn_stale_shim_reaper();
+
     let argv0 = Argv0::detect();
 
     match argv0 {
