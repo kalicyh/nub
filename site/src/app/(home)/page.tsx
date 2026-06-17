@@ -1159,28 +1159,29 @@ function HypermanagerBand() {
                 On every install, pnpm recopies the packages into a per-project{' '}
                 <Mono>node_modules</Mono>. Nub keeps one content-addressed store on disk and
                 reflinks the files already there into place, so a warm reinstall is mostly
-                relinking — about 2.7× faster than pnpm on a create-t3-app project, faster than
-                bun on average, and well ahead of npm.
+                relinking — about 2.5× faster than pnpm on a create-t3-app project, faster than
+                bun, and well ahead of npm.
               </>
             }
             visual={
               <div className="rounded-xl border border-fd-border bg-[#0b0a08] p-6">
-                {/* Source: tests/bench/results/warm-t3-20260617-093457.json + warm-t3-20260617-093911.json
+                {/* Source: tests/bench/results/warm-t3-20260617-{100017,100453,100743}.json
                     (create-t3-app, Next 16) across nub / bun / pnpm / npm, warm + frozen + offline,
-                    node_modules wiped between runs. Bars are the arithmetic MEAN across all 24 timed runs
-                    (12 per file): nub 1632 / bun 1717 / pnpm 4335 / npm 5997 ms. nub fastest by mean. */}
+                    node_modules wiped between runs. Bars are the arithmetic MEAN across all 36 timed runs
+                    (12 per file): nub 1122 / bun 1444 / pnpm 2847 / npm 4163 ms. nub fastest by mean,
+                    with disjoint σ-bands vs bun (a real win, not a tie). */}
                 <p className="mb-5 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-fd-muted-foreground">
                   warm frozen install · create-t3-app · 222 deps · macOS
                 </p>
                 <BenchBars
                   accent="pink"
-                  max={5997}
+                  max={4163}
                   unit="ms"
                   rows={[
-                    { cmd: 'nub', ms: 1632, us: true },
-                    { cmd: 'bun', ms: 1717, label: '5% slower' },
-                    { cmd: 'pnpm', ms: 4335, ratio: 2.7 },
-                    { cmd: 'npm', ms: 5997, ratio: 3.7 },
+                    { cmd: 'nub', ms: 1122, us: true },
+                    { cmd: 'bun', ms: 1444, label: '29% slower' },
+                    { cmd: 'pnpm', ms: 2847, ratio: 2.5 },
+                    { cmd: 'npm', ms: 4163, ratio: 3.7 },
                   ]}
                 />
                 <a
