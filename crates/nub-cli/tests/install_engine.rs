@@ -66,13 +66,14 @@ fn registry_reachable() -> bool {
         })
 }
 
-/// Fresh project (no lockfile): the engine resolves, links the isolated
-/// (pnpm-style) layout under `node_modules/.nub`, and writes
-/// `pnpm-lock.yaml` (nub's `defaultLockfileFormat=pnpm` embedder default —
-/// fresh projects stay portable to pnpm, not aube-branded).
+/// Truly-fresh project (no lockfile, no PM declaration, no pnpm-named file):
+/// nub claims full identity. The engine resolves, links the isolated
+/// (pnpm-style) layout under `node_modules/.nub`, writes nub's neutral
+/// `lock.yaml`, and stamps `packageManager: nub@<ver>` +
+/// `devEngines.packageManager.name = nub` into `package.json`.
 #[test]
 #[ignore = "network: resolves + fetches is-positive@3.1.0 from the npm registry"]
-fn install_fresh_project_links_isolated_and_writes_a_lockfile() {
+fn install_truly_fresh_project_claims_nub_identity() {
     if !registry_reachable() {
         eprintln!("skipping: registry.npmjs.org unreachable");
         return;
@@ -117,12 +118,65 @@ fn install_fresh_project_links_isolated_and_writes_a_lockfile() {
     );
 
     assert!(
-        dir.join("pnpm-lock.yaml").is_file(),
-        "fresh-project install writes pnpm-lock.yaml (defaultLockfileFormat=pnpm)"
+        dir.join("lock.yaml").is_file(),
+        "truly-fresh install writes nub's neutral lock.yaml"
     );
     assert!(
-        !dir.join("aube-lock.yaml").exists(),
-        "no aube-lock.yaml may appear in a fresh project"
+        !dir.join("pnpm-lock.yaml").exists() && !dir.join("aube-lock.yaml").exists(),
+        "neither pnpm-lock.yaml nor aube-lock.yaml may appear on the truly-fresh path"
+    );
+
+    // The manifest is stamped with nub identity (self-reinforcing — the next
+    // install resolves as nub-identity by declaration, not the fresh default).
+    let manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).unwrap()).unwrap();
+    assert_eq!(
+        manifest["packageManager"]
+            .as_str()
+            .map(|s| s.starts_with("nub@")),
+        Some(true),
+        "packageManager must be stamped nub@<ver>: {manifest}"
+    );
+    assert_eq!(
+        manifest["devEngines"]["packageManager"]["name"].as_str(),
+        Some("nub"),
+        "devEngines.packageManager.name must be nub: {manifest}"
+    );
+}
+
+/// A `pnpm-workspace.yaml` with no lockfile is a genuine pnpm signal, NOT a
+/// truly-fresh project: nub stays pnpm-shaped — writes `pnpm-lock.yaml` and
+/// does NOT stamp the manifest.
+#[test]
+#[ignore = "network: resolves + fetches is-positive@3.1.0 from the npm registry"]
+fn install_with_pnpm_workspace_stays_pnpm_shaped_no_stamp() {
+    if !registry_reachable() {
+        eprintln!("skipping: registry.npmjs.org unreachable");
+        return;
+    }
+    let dir = pm_tmpdir("pnpm-ws");
+    std::fs::write(
+        dir.join("package.json"),
+        r#"{"name":"pnpmws","version":"1.0.0","dependencies":{"is-positive":"3.1.0"}}"#,
+    )
+    .unwrap();
+    std::fs::write(dir.join("pnpm-workspace.yaml"), "packages: []\n").unwrap();
+
+    let (stdout, stderr, code) = run_install(&dir, &["install"]);
+    assert_eq!(code, 0, "stdout: {stdout}\nstderr: {stderr}");
+    assert!(
+        dir.join("pnpm-lock.yaml").is_file(),
+        "a pnpm-workspace.yaml project writes pnpm-lock.yaml"
+    );
+    assert!(
+        !dir.join("lock.yaml").exists(),
+        "a pnpm-incumbent project must not get nub's lock.yaml"
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).unwrap()).unwrap();
+    assert!(
+        manifest.get("packageManager").is_none(),
+        "a pnpm-incumbent project must not be stamped: {manifest}"
     );
 }
 

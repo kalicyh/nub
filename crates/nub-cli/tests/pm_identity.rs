@@ -57,21 +57,40 @@ fn run(dir: &Path, args: &[&str]) -> (String, String, i32) {
 
 const EMPTY_PNPM: &str = r#"{"name":"app","version":"1.0.0","packageManager":"pnpm@9.1.0"}"#;
 
-/// Rows "none|none → pnpm format" (Axiom 4) and "declared X|none → X's
+/// Rows "none|none → nub identity" (truly-fresh) and "declared X|none → X's
 /// format" (the fresh-with-pin row): an empty-deps install writes the
 /// identity's lockfile without any network.
 #[test]
-fn fresh_projects_write_the_identity_format_declared_first_else_pnpm() {
-    // none + none → pnpm-lock.yaml (the portable default).
+fn fresh_projects_write_the_identity_format_declared_first_else_nub() {
+    // none + none → truly fresh: nub claims identity, writes lock.yaml and
+    // stamps the manifest (packageManager + devEngines).
     let dir = project("fresh-default", r#"{"name":"app","version":"1.0.0"}"#);
     let (stdout, stderr, code) = run(&dir, &["install"]);
     assert_eq!(code, 0, "stdout: {stdout}\nstderr: {stderr}");
     assert!(
-        dir.join("pnpm-lock.yaml").is_file(),
-        "undeclared fresh install must write pnpm-lock.yaml"
+        dir.join("lock.yaml").is_file(),
+        "truly-fresh install must write nub's neutral lock.yaml: {stderr}"
+    );
+    assert!(
+        !dir.join("pnpm-lock.yaml").exists(),
+        "no pnpm-lock.yaml on the truly-fresh nub-identity path"
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).unwrap()).unwrap();
+    assert_eq!(
+        manifest["packageManager"]
+            .as_str()
+            .map(|s| s.starts_with("nub@")),
+        Some(true),
+        "truly-fresh install must stamp packageManager = nub@<ver>: {manifest}"
+    );
+    assert_eq!(
+        manifest["devEngines"]["packageManager"]["name"].as_str(),
+        Some("nub"),
+        "truly-fresh install must stamp devEngines.packageManager.name = nub: {manifest}"
     );
 
-    // declared npm + none → package-lock.json, NOT the pnpm default.
+    // declared npm + none → package-lock.json, NOT the nub default.
     let dir = project(
         "fresh-npm",
         r#"{"name":"app","version":"1.0.0","packageManager":"npm@11.0.0"}"#,

@@ -882,13 +882,26 @@ pub fn run_install(flags: InstallFlags) -> Result<i32> {
     // below — the explicit CLI flag always wins (it's OR'd in, never overridden).
     let config = super::install_config_signals(&session);
 
+    // FAIL LOUD when offline mode is active AND a yarn `yarn-offline-mirror` is
+    // configured: nub can't read a configured mirror directory, so in offline
+    // mode (where the mirror is the user's intended package source) silently
+    // hitting the public registry would diverge. The mirror is moot online, so
+    // gate on the effective offline state (yarn `enableNetwork: false`, or the
+    // `--offline` / `--prefer-offline` CLI flags).
+    if let Some(err) = offline_mirror_preflight(
+        &session,
+        flags.offline || flags.prefer_offline || config.offline,
+    ) {
+        return Err(err);
+    }
+
     // Mirror `run_install_command`: defaults from clap, nub's flags on top.
     let mut args = default_install_args();
     args.prod = flags.prod || config.dep_selection.prod;
     args.dev = flags.dev || config.dep_selection.dev;
     args.ignore_scripts = flags.ignore_scripts;
     args.no_optional = flags.no_optional || config.dep_selection.no_optional;
-    args.offline = flags.offline;
+    args.offline = flags.offline || config.offline;
     args.prefer_offline = flags.prefer_offline;
     args.lockfile_only = flags.lockfile_only;
     args.force = flags.force;
@@ -910,7 +923,7 @@ pub fn run_install(flags: InstallFlags) -> Result<i32> {
     // yaml_prefer_frozen: None — see KNOWN APPROXIMATIONS in the module doc.
     let mut opts = args.into_options(global_frozen, None, cli_flags, super::env_snapshot());
     // yarn `enableScripts: false` — honor the security opt-out by forcing a
-    // block-all-builds policy that overrides even nub's `defaultTrust` floor.
+    // block-all-builds policy that overrides even nub's curated default-trust floor.
     if config.scripts_disabled {
         opts.build_policy_override =
             Some(std::sync::Arc::new(aube_scripts::BuildPolicy::deny_all()));
@@ -960,7 +973,74 @@ pub fn run_install(flags: InstallFlags) -> Result<i32> {
         opts.mode = FrozenMode::Frozen;
     }
 
-    run_engine(&session, opts, yarn)
+    let code = run_engine(&session, opts, yarn)?;
+    // Truly-fresh install: nub claims full identity on the project it just
+    // scaffolded from nothing. The neutral `lock.yaml` was already written
+    // (the `defaultLockfileFormat=aube` embedder default on this path); now
+    // stamp the manifest so the identity is durable and self-reinforcing.
+    // Stamp ONLY on a clean success — a failed/partial install must not leave
+    // an identity stamp behind.
+    if code == 0 && session.truly_fresh {
+        stamp_fresh_nub_identity();
+    }
+    Ok(code)
+}
+
+/// Stamp nub identity into the root `package.json` after a successful
+/// truly-fresh install: `packageManager: "nub@<ver>"` plus
+/// `devEngines.packageManager = { name: "nub", version: "^<ver>", onFail:
+/// "warn" }` — the same shape `nub pm use nub` writes (the sanctioned identity
+/// stamper), so a fresh install and an explicit `use nub` converge on one
+/// manifest shape. Best-effort: a manifest the editor can't rewrite (missing /
+/// unparseable) leaves the lockfile as the identity marker and is not fatal to
+/// an install that already succeeded.
+fn stamp_fresh_nub_identity() {
+    let Ok(cwd) = std::env::current_dir() else {
+        return;
+    };
+    // The stamp lands on the same root the manifest editor resolves (workspace
+    // root if any, else the nearest project root) — identity is repo-wide.
+    let nub_version = env!("CARGO_PKG_VERSION");
+    let result = nub_core::pm::resolve::edit_root_manifest(&cwd, |obj| {
+        obj.insert(
+            "packageManager".into(),
+            serde_json::Value::String(format!("nub@{nub_version}")),
+        );
+        let dev = obj
+            .entry("devEngines")
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+        if let Some(dev) = dev.as_object_mut() {
+            dev.insert(
+                "packageManager".into(),
+                serde_json::json!({
+                    "name": "nub",
+                    "version": format!("^{nub_version}"),
+                    "onFail": "warn",
+                }),
+            );
+        }
+    });
+    if result.is_ok() {
+        present::info(&format!(
+            "stamped nub identity: packageManager = nub@{nub_version}, \
+             devEngines.packageManager.name = nub"
+        ));
+    }
+}
+
+/// FAIL LOUD if `offline_active` and the session's yarn project configures a
+/// classic `.yarnrc` `yarn-offline-mirror` nub can't honor. No-op when offline
+/// mode is off (the mirror is moot online) or the session has no resolved
+/// identity. Shared by `run_install` and `run_ci`.
+fn offline_mirror_preflight(
+    session: &EngineSession,
+    offline_active: bool,
+) -> Option<anyhow::Error> {
+    if !offline_active {
+        return None;
+    }
+    let (role, root) = super::session_role_root(session)?;
+    super::unsupported_config::offline_mirror_fatal(role, &root)
 }
 
 /// `nub ci` — frozen + clean install, npm-ci semantics. Constructed at the
@@ -999,9 +1079,18 @@ pub fn run_ci(flags: CiFlags) -> Result<i32> {
     };
     remove_node_modules(&root.join("node_modules"))?;
 
-    // Config-derived knobs (ci is frozen by definition, so only the dep-axis
-    // and the yarn block-all-scripts opt-out apply).
+    // Config-derived knobs (ci is frozen by definition, so the dep-axis, the
+    // yarn block-all-scripts opt-out, and the yarn `enableNetwork: false`
+    // offline mode apply — `ci` has no `--offline` CLI flag, so offline mode
+    // here comes solely from config).
     let config = super::install_config_signals(&session);
+
+    // Same offline-mirror fail-loud gate as `run_install`: in offline mode a
+    // configured `yarn-offline-mirror` nub can't honor is fatal (moot online).
+    if let Some(err) = offline_mirror_preflight(&session, config.offline) {
+        return Err(err);
+    }
+
     let dep = config.dep_selection;
     let opts = InstallOptions {
         mode: FrozenMode::Frozen,
@@ -1014,6 +1103,13 @@ pub fn run_ci(flags: CiFlags) -> Result<i32> {
         build_policy_override: config
             .scripts_disabled
             .then(|| std::sync::Arc::new(aube_scripts::BuildPolicy::deny_all())),
+        // yarn `enableNetwork: false` ⇒ offline (serve cached only, error on a
+        // miss). `ci` builds opts directly, so set the mode explicitly here.
+        network_mode: if config.offline {
+            aube_registry::NetworkMode::Offline
+        } else {
+            aube_registry::NetworkMode::Online
+        },
         strict_no_lockfile: true,
         cli_flags: Vec::new(),
         env_snapshot: super::env_snapshot(),

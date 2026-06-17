@@ -124,9 +124,9 @@ const IS_POSITIVE_PACKAGE_LOCK: &str = r#"{
 }
 "#;
 
-/// `nub add` then `nub rm` (alias) round-trip on a fresh project: add
-/// persists the dep + writes pnpm-lock.yaml + links node_modules; remove
-/// strips the dep from the manifest again. Both outputs brand-clean.
+/// `nub add` then `nub rm` (alias) round-trip on a truly-fresh project: add
+/// persists the dep + writes nub's neutral `lock.yaml` + links node_modules;
+/// remove strips the dep from the manifest again. Both outputs brand-clean.
 #[test]
 #[ignore = "network: resolves + fetches is-positive@3.1.0 from the npm registry"]
 fn add_then_remove_round_trips_manifest_lockfile_and_node_modules() {
@@ -155,8 +155,10 @@ fn add_then_remove_round_trips_manifest_lockfile_and_node_modules() {
         "add must persist the dependency: {manifest}"
     );
     assert!(
-        dir.join("pnpm-lock.yaml").is_file() && !dir.join("aube-lock.yaml").exists(),
-        "add writes nub's canonical lockfile"
+        dir.join("lock.yaml").is_file()
+            && !dir.join("pnpm-lock.yaml").exists()
+            && !dir.join("aube-lock.yaml").exists(),
+        "add on a truly-fresh project writes nub's neutral lock.yaml"
     );
     assert!(
         dir.join("node_modules/is-positive/package.json").is_file(),

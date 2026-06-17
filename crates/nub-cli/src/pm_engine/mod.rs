@@ -580,6 +580,13 @@ pub(crate) fn stub_error(typed: &str, args: &[String], pm_hint: &str) -> anyhow:
 pub(crate) struct EngineSession {
     pub(crate) detected: Option<DetectedLockfile>,
     pub(crate) runtime: tokio::runtime::Runtime,
+    /// The project had NO package-manager preference signal of any kind when
+    /// this session was prepared (no lockfile, no `packageManager`/`devEngines`
+    /// declaration, no pnpm-named file). On this path nub claims full identity:
+    /// the install writes `lock.yaml` (via the `defaultLockfileFormat=aube`
+    /// embedder default) and stamps the manifest. Carried so the install family
+    /// can stamp AFTER a successful first install.
+    pub(crate) truly_fresh: bool,
 }
 
 /// Build the shared engine context for one verb invocation: apply `--dir`,
@@ -661,9 +668,15 @@ fn engine_session_inner(dir: Option<&Path>, noise: ConfigScopeNoise) -> Result<E
     if noise == ConfigScopeNoise::Warn {
         warn_if_pnp_requested(detected.as_ref(), &cwd);
     }
+    // Truly-fresh = no PM-preference signal anywhere (no lockfile, no
+    // declaration, no pnpm-named file). On this path nub claims full identity:
+    // the embedder default flips to `lock.yaml` and the install stamps the
+    // manifest. Any incumbent signal makes the project pnpm-shaped/compat and
+    // is respected untouched.
+    let truly_fresh = is_truly_fresh_project(&cwd, detected.as_ref());
     // Set-unless-user-set: ranks below CLI flags, env vars, and every
     // config file in the engine's settings precedence.
-    aube_settings::set_embedder_defaults(nub_setting_defaults(detected.as_ref()));
+    aube_settings::set_embedder_defaults(nub_setting_defaults(detected.as_ref(), truly_fresh));
     // Route the engine's lifecycle scripts through nub's runtime augmentation
     // (project-pinned + augmented Node, shim on PATH, preload) — the SAME
     // augmentation `nub run` / `nub exec` apply, so run / exec / lifecycle
@@ -674,6 +687,7 @@ fn engine_session_inner(dir: Option<&Path>, noise: ConfigScopeNoise) -> Result<E
     Ok(EngineSession {
         detected,
         runtime: build_runtime()?,
+        truly_fresh,
     })
 }
 
@@ -686,6 +700,9 @@ pub(crate) struct InstallConfigSignals {
     pub(crate) dep_selection: unsupported_config::DepSelectionConfig,
     pub(crate) frozen: bool,
     pub(crate) scripts_disabled: bool,
+    /// yarn `enableNetwork: false` (Berry) — forces an offline install. OR'd
+    /// onto the `--offline` CLI flag in `run_install`/`run_ci`.
+    pub(crate) offline: bool,
 }
 
 /// Resolve the config-derived install knobs for one install/ci invocation from
@@ -694,22 +711,33 @@ pub(crate) struct InstallConfigSignals {
 /// yarn `.yarnrc.yml` `enableImmutableInstalls`/`immutablePatterns`/
 /// `enableScripts`). Returns all-default when no identity resolves.
 pub(crate) fn install_config_signals(session: &EngineSession) -> InstallConfigSignals {
-    let Some(detected) = session.detected.as_ref() else {
+    let Some((role, root)) = session_role_root(session) else {
         return InstallConfigSignals::default();
     };
+    let root = root.as_path();
+    InstallConfigSignals {
+        dep_selection: unsupported_config::dep_selection_from_config(role, root)
+            .unwrap_or_default(),
+        frozen: unsupported_config::frozen_from_config(role, root),
+        scripts_disabled: unsupported_config::yarn_scripts_disabled(role, root),
+        offline: unsupported_config::yarn_network_disabled(role, root),
+    }
+}
+
+/// Resolve the active-PM [`Role`] + project root for a session, mirroring
+/// [`install_config_signals`]'s identity resolution. `None` when no lockfile /
+/// identity resolves (an undetected session has no PM config to read).
+pub(crate) fn session_role_root(
+    session: &EngineSession,
+) -> Option<(config_scope::Role, std::path::PathBuf)> {
+    let detected = session.detected.as_ref()?;
     let declared = nub_core::pm::resolve::declared_pm_raw(&detected.dir);
     let role = config_scope::role_of(
         declared.as_ref().map(|(n, _)| n.as_str()),
         Some(detected.kind),
     )
     .unwrap_or(config_scope::Role::Nub);
-    let root = detected.dir.as_path();
-    InstallConfigSignals {
-        dep_selection: unsupported_config::dep_selection_from_config(role, root)
-            .unwrap_or_default(),
-        frozen: unsupported_config::frozen_from_config(role, root),
-        scripts_disabled: unsupported_config::yarn_scripts_disabled(role, root),
-    }
+    Some((role, detected.dir.clone()))
 }
 
 /// Apply the config-scoping policy for one verb invocation: resolve the
@@ -1433,9 +1461,12 @@ enum ConfigSurface {
 ///   compat (named after the lockfile). A `lock.yaml` BESIDE a foreign one is
 ///   the ambiguity state — surface follows the foreign lockfile, exactly as
 ///   the old probes resolved it.
-/// - A completely empty level → keep walking. Nothing anywhere = fresh =
-///   pnpm-shaped (a `pnpm-workspace.yaml` with no lockfile is still a
-///   pnpm-shaped project).
+/// - A completely empty level → keep walking. Nothing anywhere splits on
+///   whether a pnpm-NAMED file (`pnpm-workspace.yaml`, `.pnpmfile.cjs/.mjs`,
+///   `.pnpmrc`) was seen in the walk: a truly-fresh project (no pnpm-named
+///   file, no PM-preference signal of any kind) becomes NUB identity — nub
+///   owns a project it scaffolds from nothing; a `pnpm-workspace.yaml`-present
+///   project (a genuine pnpm signal, no lockfile yet) stays pnpm-shaped.
 fn resolve_config_surface(cwd: &Path) -> ConfigSurface {
     // npm/yarn/bun-owned lockfiles, paired with the incumbent name (order
     // mirrors the old `non_pnpm_role_display` precedence for the name pick).
@@ -1446,8 +1477,16 @@ fn resolve_config_surface(cwd: &Path) -> ConfigSurface {
         ("bun.lock", "bun"),
         ("bun.lockb", "bun"),
     ];
+    // A pnpm-NAMED file anywhere in the walk is a genuine pnpm signal even with
+    // no lockfile yet, so the terminal default stays pnpm-shaped; absent any
+    // such file the terminal default flips to NUB identity (truly-fresh).
+    let mut saw_pnpm_named = false;
+    let truly_fresh_root = cwd.to_path_buf();
     let mut dir = cwd.to_path_buf();
     for _ in 0..16 {
+        if !saw_pnpm_named && dir_has_pnpm_named_file(&dir) {
+            saw_pnpm_named = true;
+        }
         if let Some(decl) = aube_lockfile::declared_package_manager(&dir) {
             return match decl.name.as_str() {
                 "nub" => ConfigSurface::NubIdentity(dir),
@@ -1483,8 +1522,33 @@ fn resolve_config_surface(cwd: &Path) -> ConfigSurface {
             break;
         }
     }
-    // Nothing decided anywhere within the walk: fresh = pnpm-shaped.
-    ConfigSurface::PnpmOrFresh
+    // Nothing decided anywhere within the walk. A truly-fresh project (no
+    // PM-preference signal of any kind, no pnpm-named file) becomes NUB
+    // identity: the next install writes `lock.yaml` and stamps the manifest,
+    // and the project self-reinforces as nub-identity thereafter. A
+    // pnpm-named file seen in the walk keeps the pnpm-shaped surface.
+    if saw_pnpm_named {
+        ConfigSurface::PnpmOrFresh
+    } else {
+        ConfigSurface::NubIdentity(truly_fresh_root)
+    }
+}
+
+/// Whether `dir` holds a pnpm-NAMED file — the name-based pnpm signal that
+/// keeps a lockfile-less project pnpm-shaped (`resolve_config_surface`'s
+/// terminal split). The `pnpm.*` package.json namespace is a pnpm signal too,
+/// but it rides the `declared_package_manager` / lockfile checks already in
+/// the walk; this covers the on-disk file names. Gates on NAME, not effect
+/// (the brand-boundary rule): a generically-named field pnpm happens to read
+/// is not a pnpm-named file.
+fn dir_has_pnpm_named_file(dir: &Path) -> bool {
+    const PNPM_NAMED: &[&str] = &[
+        "pnpm-workspace.yaml",
+        ".pnpmfile.cjs",
+        ".pnpmfile.mjs",
+        ".pnpmrc",
+    ];
+    PNPM_NAMED.iter().any(|name| dir.join(name).is_file())
 }
 
 fn read_yarn_config_for_surface(surface: &ConfigSurface) -> bool {
@@ -1561,7 +1625,10 @@ fn read_file_head(path: &Path, max_bytes: usize) -> std::io::Result<String> {
 /// tier (below all user sources — a user's `--node-linker`,
 /// `npm_config_node_linker`, `.npmrc`, or workspace yaml all win):
 ///
-/// - `defaultLockfileFormat=pnpm` — fresh projects write `pnpm-lock.yaml`.
+/// - `defaultLockfileFormat` — a TRULY-fresh project (no PM-preference signal
+///   of any kind) writes nub's neutral `lock.yaml` (`=aube`); every other
+///   surface writes `pnpm-lock.yaml` (`=pnpm`) for drop-in interop. See
+///   [`nub_setting_defaults`]'s `truly_fresh` arm.
 /// - `virtualStoreDir` / `stateDir` = `node_modules/.nub` — the isolated
 ///   store (and the engine's install-state sidecar) live under `.nub`.
 ///   Corner: this replaces the engine's `<modulesDir>/.aube` derivation, so
@@ -1581,14 +1648,18 @@ fn read_file_head(path: &Path, max_bytes: usize) -> std::io::Result<String> {
 ///   non-settings consumers (git clone cache, node-gyp tool cache, primer,
 ///   adaptive state) never read the setting at all; the process-global
 ///   cache root covers every one of them.
-/// - `defaultTrust=true` — the gated default-trust floor (curated list ∧
-///   registry-resolved ∧ OSV MAL-* gate active ∧ past the cooling window)
-///   is ON under nub in both modes; upstream aube keeps it off. Precedence
-///   stays the settled chain (explicit `allowBuilds` true/false always wins
-///   — `false` carves a package OUT of the floor; the map's *existence*
-///   never disables it). Off-switch: `.npmrc default-trust=false` /
-///   `npm_config_default_trust=false` — this is the embedder tier, below
-///   every user source.
+/// - The gated curated default-trust floor (curated list ∧ registry-resolved ∧
+///   OSV MAL-* gate active ∧ past the cooling window) is ON under nub in both
+///   modes via the embedder profile (`Embedder::curated_default_trust = true`,
+///   set in `identity::NUB`); upstream aube keeps it off. It is NOT a setting in
+///   the defaults map — it's an embedder-fixed posture. The floor is bypassed
+///   when the project supplies its own trust list (any positive `allowBuilds` /
+///   `onlyBuiltDependencies` / `trustedDependencies` entry, or a present-but-
+///   empty one meaning "trust nothing"): that set is authoritative
+///   (presence-of-list). An explicit `allowBuilds: false` carves one package out
+///   of the still-active floor. This replaces the removed `defaultTrust` boolean
+///   setting, which read as "trust everything by default" — the opposite of its
+///   gated behavior.
 ///
 /// Emit a single install-time warning when the Yarn incumbent's effective
 /// linker is PnP but nub will install a `node_modules` tree instead. Yarn
@@ -1692,10 +1763,23 @@ fn strip_yarnrc_value(rest: &str) -> &str {
 ///   `nodeLinker` to `hoisted`; pnpm/aube kinds and fresh projects keep the
 ///   engine's `isolated` default (no entry pushed, so user/env settings
 ///   resolve exactly as in stock aube).
-fn nub_setting_defaults(detected: Option<&DetectedLockfile>) -> Vec<(String, String)> {
+/// - Fresh-write lockfile format: a TRULY-fresh project (no PM-preference
+///   signal of any kind — `truly_fresh`) writes nub's neutral `lock.yaml`
+///   (`defaultLockfileFormat=aube`, which under the nub embedder resolves to
+///   the `lock.yaml` basename); every other surface writes `pnpm-lock.yaml`,
+///   keeping a pnpm-incumbent / mixed project drop-in interoperable. A
+///   user-set `defaultLockfileFormat` (env/.npmrc/yaml) still wins on either
+///   path — this is only the embedder-tier default.
+fn nub_setting_defaults(
+    detected: Option<&DetectedLockfile>,
+    truly_fresh: bool,
+) -> Vec<(String, String)> {
+    let fresh_format = if truly_fresh { "aube" } else { "pnpm" };
     let mut defaults = vec![
-        ("defaultLockfileFormat".to_string(), "pnpm".to_string()),
-        ("defaultTrust".to_string(), "true".to_string()),
+        (
+            "defaultLockfileFormat".to_string(),
+            fresh_format.to_string(),
+        ),
         (
             "virtualStoreDir".to_string(),
             "node_modules/.nub".to_string(),
@@ -1736,6 +1820,32 @@ fn nub_setting_defaults(detected: Option<&DetectedLockfile>) -> Vec<(String, Str
         defaults.push(("nodeLinker".to_string(), "hoisted".to_string()));
     }
     defaults
+}
+
+/// Whether the project at `cwd` is TRULY fresh — no package-manager preference
+/// signal of any kind in the walk-up. `detected.is_none()` already establishes
+/// that no lockfile (of any format) and no `packageManager`/`devEngines`
+/// declaration exists anywhere up the tree (`resolve_identity_walk_up` returns
+/// `None` only then); this additionally requires that no pnpm-NAMED file
+/// (`pnpm-workspace.yaml`, `.pnpmfile.*`, `.pnpmrc`) sits in the walk — a
+/// pnpm-named file is a genuine pnpm signal that makes the project pnpm-shaped,
+/// not nub's to claim. On the truly-fresh path nub writes `lock.yaml` and
+/// stamps the manifest with its own identity; any incumbent signal is
+/// respected and left untouched.
+fn is_truly_fresh_project(cwd: &Path, detected: Option<&DetectedLockfile>) -> bool {
+    if detected.is_some() {
+        return false;
+    }
+    let mut dir = cwd.to_path_buf();
+    for _ in 0..16 {
+        if dir_has_pnpm_named_file(&dir) {
+            return false;
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    true
 }
 
 /// Nub's XDG data root (`$XDG_DATA_HOME/nub` or `~/.local/share/nub`), the
@@ -2014,7 +2124,10 @@ mod tests {
             LockfileKind::Bun,
         ] {
             assert_eq!(
-                get(&nub_setting_defaults(Some(&detected(kind))), "nodeLinker"),
+                get(
+                    &nub_setting_defaults(Some(&detected(kind)), false),
+                    "nodeLinker"
+                ),
                 Some("hoisted"),
                 "{kind:?} must default to the hoisted layout"
             );
@@ -2024,23 +2137,59 @@ mod tests {
         // default applies, user/env settings resolve as in stock aube).
         for kind in [LockfileKind::Pnpm, LockfileKind::Aube] {
             assert_eq!(
-                get(&nub_setting_defaults(Some(&detected(kind))), "nodeLinker"),
+                get(
+                    &nub_setting_defaults(Some(&detected(kind)), false),
+                    "nodeLinker"
+                ),
                 None,
                 "{kind:?} must not inject a nodeLinker default"
             );
         }
         assert_eq!(
-            get(&nub_setting_defaults(None), "nodeLinker"),
+            get(&nub_setting_defaults(None, true), "nodeLinker"),
             None,
             "no lockfile must not inject a nodeLinker default"
         );
     }
 
     #[test]
+    fn fresh_write_format_flips_with_truly_fresh() {
+        // A truly-fresh project writes nub's neutral `lock.yaml`
+        // (`defaultLockfileFormat=aube`); every other surface keeps the
+        // pnpm-lock fresh-write default for drop-in interop.
+        assert_eq!(
+            get(&nub_setting_defaults(None, true), "defaultLockfileFormat"),
+            Some("aube"),
+            "truly-fresh must write nub's lock.yaml"
+        );
+        assert_eq!(
+            get(&nub_setting_defaults(None, false), "defaultLockfileFormat"),
+            Some("pnpm"),
+            "a project with a pnpm signal keeps the pnpm-lock fresh-write default"
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let pnpm = DetectedLockfile {
+            kind: LockfileKind::Pnpm,
+            dir: dir.path().to_path_buf(),
+            fresh: false,
+        };
+        assert_eq!(
+            get(
+                &nub_setting_defaults(Some(&pnpm), false),
+                "defaultLockfileFormat"
+            ),
+            Some("pnpm"),
+            "an incumbent lockfile is never the truly-fresh path"
+        );
+    }
+
+    #[test]
     fn setting_defaults_always_carry_the_nub_identity_settings() {
-        // Every engine command gets the pnpm lockfile default, the `.nub`
-        // store/state location, and the nub-namespaced global dirs,
-        // regardless of detection. (These ride the engine's
+        // Every engine command gets the `.nub` store/state location and the
+        // nub-namespaced global dirs regardless of detection; the non-truly-
+        // fresh surfaces also get the pnpm lockfile fresh-write default (the
+        // truly-fresh `aube`/`lock.yaml` flip is covered separately). (These
+        // ride the engine's
         // embedder-defaults tier, so any user source overrides them —
         // precedence is covered by the engine's own tests and the
         // install_engine integration tests.)
@@ -2051,7 +2200,11 @@ mod tests {
                 dir: dir.path().to_path_buf(),
                 fresh: false,
             });
-            let defaults = nub_setting_defaults(detected.as_ref());
+            // `truly_fresh = false` here: this exercises the
+            // identity-settings invariants for the non-truly-fresh surfaces
+            // (the truly-fresh lockfile-format flip is covered separately in
+            // `fresh_write_format_flips_with_truly_fresh`).
+            let defaults = nub_setting_defaults(detected.as_ref(), false);
             assert_eq!(get(&defaults, "defaultLockfileFormat"), Some("pnpm"));
             assert_eq!(get(&defaults, "virtualStoreDir"), Some("node_modules/.nub"));
             assert_eq!(get(&defaults, "stateDir"), Some("node_modules/.nub"));
@@ -2077,10 +2230,12 @@ mod tests {
         // Security invariant: nub must NEVER inherit an allow-all build-script
         // default from any incumbent.  Every incumbent — npm, pnpm, yarn,
         // yarn-berry, bun, aube, npm-shrinkwrap, and fresh/no-lockfile — must
-        // produce `defaultTrust = "true"` (the safe explicit allowlist posture)
-        // and must NOT carry `dangerouslyAllowAllBuilds` in the defaults map.
-        // This test guards against a future incumbent-specialisation refactor
-        // silently leaking an unsafe default.
+        // NOT carry `dangerouslyAllowAllBuilds` in the defaults map. The curated
+        // default-trust floor is an embedder-fixed posture
+        // (`Embedder::curated_default_trust`, asserted true for NUB in
+        // `identity.rs`), no longer a `defaultTrust` setting in this map — so
+        // neither key should appear here. This test guards against a future
+        // incumbent-specialisation refactor silently leaking an unsafe default.
         let dir = tempfile::tempdir().unwrap();
         let detected = |kind| DetectedLockfile {
             kind,
@@ -2101,14 +2256,15 @@ mod tests {
 
         for kind in all_kinds {
             let d = kind.map(detected);
-            let defaults = nub_setting_defaults(d.as_ref());
+            let defaults = nub_setting_defaults(d.as_ref(), false);
             let label = format!("{kind:?}");
 
-            // Must always carry the safe explicit-allowlist posture.
+            // The curated floor is an embedder posture, not a setting default —
+            // `defaultTrust` must not appear in the defaults map.
             assert_eq!(
                 get(&defaults, "defaultTrust"),
-                Some("true"),
-                "{label}: defaultTrust must be \"true\""
+                None,
+                "{label}: defaultTrust is removed — curated trust is an embedder posture, not a default"
             );
 
             // Must never inject an allow-all build-script key.
@@ -2382,9 +2538,28 @@ mod tests {
         );
 
         // ── fresh + walk-up ──────────────────────────────────────────────
-        // Nothing anywhere → fresh = pnpm-shaped.
+        // Truly fresh (no PM signal of any kind) → nub claims identity.
         let d = root(&[("package.json", "{}")]);
+        assert_eq!(
+            resolve_config_surface(d.path()),
+            ConfigSurface::NubIdentity(d.path().to_path_buf())
+        );
+        // A pnpm-workspace.yaml with no lockfile is a genuine pnpm signal →
+        // stays pnpm-shaped (not nub's to claim).
+        let d = root(&[
+            ("package.json", "{}"),
+            ("pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n"),
+        ]);
         assert_eq!(resolve_config_surface(d.path()), ConfigSurface::PnpmOrFresh);
+        // Other pnpm-NAMED files (no lockfile) are pnpm signals too.
+        for named in [".pnpmfile.cjs", ".pnpmfile.mjs", ".pnpmrc"] {
+            let d = root(&[("package.json", "{}"), (named, "\n")]);
+            assert_eq!(
+                resolve_config_surface(d.path()),
+                ConfigSurface::PnpmOrFresh,
+                "{named} keeps the pnpm-shaped surface"
+            );
+        }
         // Walks up from a member dir to the deciding root (nub identity).
         let d = root(&[
             ("package.json", r#"{"packageManager":"nub@0.1.0"}"#),
