@@ -1,0 +1,1 @@
+{"scenario":"cold","fixture":"t3","runs":5,"pnpm":{"times_ms":[6792,5293,5155,5193,5722],"mean_ms":5631,"stddev_ms":614},"nub":{"times_ms":[8631,7317,6506,8936,8661],"mean_ms":8010,"stddev_ms":939},"bun":{"times_ms":[5307,4667,4844,6184,5557],"mean_ms":5311,"stddev_ms":539}}
