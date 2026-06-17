@@ -695,21 +695,22 @@ function RunScriptBand() {
             }
             visual={
               <div className="rounded-xl border border-fd-border bg-[#0b0a08] p-6">
-                {/* Source: tests/bench/run-script-runner-pure.sh — pure-shell `true` noop
-                    isolates runner DISPATCH overhead (a node-invoking script would let node's
-                    ~42ms boot swamp it). Fresh-validated 2026-06-14: pnpm run 393ms / nub 14.5ms
-                    @ load 3.7 (27×); 356/25× is conservative. Decomposition: node bootstrap is only
-                    ~11% of pnpm's per-call cost — the rest is the PM's own JS, NOT "node bootstrap". */}
+                {/* Source: warm script-dispatch bench, M1 Max, Node v26.2.0, hyperfine 50 runs.
+                    nub run 14.7 / node --run 32.2 / npm run 329.9 / pnpm run 442.7 ms.
+                    nub dispatches in Rust with no Node bootstrap, so it beats Node's own
+                    `node --run` (~2.2×), which boots V8 just to dispatch. Same four numbers
+                    as the script-runner docs bench (site/content/docs/run.mdx) — keep in sync. */}
                 <p className="mb-5 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-fd-muted-foreground">
-                  echo noop · pure shell · macOS
+                  script dispatch · warm · 50 runs · macOS
                 </p>
                 <BenchBars
                   accent="acid"
-                  max={356}
+                  max={442.7}
                   rows={[
-                    { cmd: 'nub run', ms: 14, us: true },
-                    { cmd: 'npm run', ms: 320, ratio: 22 },
-                    { cmd: 'pnpm run', ms: 356, ratio: 24 },
+                    { cmd: 'nub run', ms: 14.7, us: true },
+                    { cmd: 'node --run', ms: 32.2, ratio: 2.2 },
+                    { cmd: 'npm run', ms: 329.9, ratio: 22 },
+                    { cmd: 'pnpm run', ms: 442.7, ratio: 30 },
                   ]}
                 />
                 <a
