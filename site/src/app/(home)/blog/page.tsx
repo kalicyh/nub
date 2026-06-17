@@ -2,6 +2,8 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { blog } from '@/lib/source';
 
+const blogOgImage = `/og?${new URLSearchParams({ title: 'Blog', eyebrow: 'Blog' }).toString()}`;
+
 export const metadata: Metadata = {
   title: 'Blog',
   description: 'Writing on Nub — the all-in-one toolkit for Node.js. Notes on the thesis, the toolchain, and what ships next.',
@@ -11,6 +13,13 @@ export const metadata: Metadata = {
     url: '/blog',
     title: 'Blog',
     description: 'Writing on Nub — the all-in-one toolkit for Node.js.',
+    images: [{ url: blogOgImage, width: 1200, height: 630, alt: 'Nub Blog' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Blog',
+    description: 'Writing on Nub — the all-in-one toolkit for Node.js. Notes on the thesis, the toolchain, and what ships next.',
+    images: [blogOgImage],
   },
 };
 

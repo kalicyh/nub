@@ -83,6 +83,7 @@ export async function generateMetadata(props: {
   if (!page) notFound();
 
   const { title, description, date, author } = page.data;
+  const ogImage = `/og?${new URLSearchParams({ title, eyebrow: 'Blog' }).toString()}`;
 
   return {
     title,
@@ -95,6 +96,13 @@ export async function generateMetadata(props: {
       description,
       publishedTime: date ? new Date(date).toISOString() : undefined,
       authors: author ? [author] : undefined,
+      images: [{ url: ogImage, width: 1200, height: 630, alt: title }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      images: [ogImage],
     },
   };
 }
