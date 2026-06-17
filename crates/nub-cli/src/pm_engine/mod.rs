@@ -63,7 +63,9 @@ pub mod store_config_family;
 pub mod use_align;
 pub mod use_nub;
 
-pub use install_family::{CiFlags, InstallFlags, run_ci, run_dlx_for_nubx, run_install};
+pub use install_family::{
+    CiFlags, InstallFlags, WorkspaceFilterFlags, run_ci, run_dlx_for_nubx, run_install,
+};
 
 use std::path::{Path, PathBuf};
 
