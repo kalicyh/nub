@@ -1,7 +1,7 @@
 {
   "results": [
     {
-      "command": "/Users/user/Documents/projects/dun/target/release/nub run noop",
+      "command": "/Users/colinmcd94/Documents/projects/dun/target/release/nub run noop",
       "mean": 0.06030354145000001,
       "stddev": 0.002191628392759678,
       "median": 0.06023695800000001,

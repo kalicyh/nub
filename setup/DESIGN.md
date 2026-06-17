@@ -84,6 +84,8 @@ $XDG_CACHE_HOME/nub/node         # provisioned Node toolchains (else ~/.cache/nu
 
 Do NOT cache `node_modules/.nub` (the per-project virtual store) — it's reconstructed from the CAS store on each install and is cheap to relink; caching it fights nub's own reflink/relink path.
 
+> **Correction (2026-06-16 verification pass):** the PM packument cache may NOT land at `$XDG_CACHE_HOME/nub/pm`. `store_config_family.rs:16-19` documents a KNOWN GAP — `cacheDir` can't ride the embedder-defaults tier at the pinned aube API, so the engine's `cache` operates on `<XDG_CACHE_HOME>/aube/…`. The `nub/pm` namespace is *configured* but the packument cache specifically escapes it. The load-bearing cache layers are the **store** (`nub store path`, `$XDG_DATA_HOME/nub/store/v1`) and the **Node toolchain** (`<cache>/node`) — derive both at runtime, never hardcode. Treat the PM-cache dir as best-effort (packuments are small + re-fetchable; a wrong path is a cheap miss, not breakage), and resolve the `nub/pm`-vs-`aube/` ambiguity (or drop that cache line) before flipping `cache` default to `true`.
+
 **Cache key.** Mirror `setup-node`'s shape:
 
 ```

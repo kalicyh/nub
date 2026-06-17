@@ -8,7 +8,7 @@ import type { NextRequest } from 'next/server';
    path segment, which Turbopack enforces), so per-page docs cards are produced
    here instead and wired explicitly from each page's `generateMetadata`.
 
-       /og?title=Script%20runner&eyebrow=nub%20run&subtitle=...
+       /og?title=Script%20runner&eyebrow=nub%20run
 
    The homepage uses its own static `(home)/opengraph-image.tsx`.
 
@@ -26,7 +26,6 @@ export function GET(req: NextRequest) {
   const searchParams = new URL(req.url).searchParams;
   const title = searchParams.get('title') ?? 'Documentation';
   const eyebrow = searchParams.get('eyebrow') ?? 'Documentation';
-  const subtitle = searchParams.get('subtitle') ?? undefined;
 
-  return renderOgImage({ title, eyebrow, subtitle });
+  return renderOgImage({ title, eyebrow });
 }

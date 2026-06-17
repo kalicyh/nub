@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import { source } from '@/lib/source';
-import { clampSubtitle } from '@/lib/og';
 import {
   DocsPage,
   DocsBody,
@@ -51,22 +50,13 @@ const EYEBROW_BY_URL: Record<string, string> = {
   '/docs/watch': 'nub watch',
 };
 
-/* Build the per-page social-card URL handled by `app/og/route.tsx`. */
-function ogImageUrl({
-  url,
-  title,
-  description,
-}: {
-  url: string;
-  title: string;
-  description?: string;
-}): string {
+/* Build the per-page social-card URL handled by `app/og/route.tsx`. The card
+   shows the eyebrow and title only — no description (it rarely fit). */
+function ogImageUrl({ url, title }: { url: string; title: string }): string {
   const params = new URLSearchParams({
     title,
     eyebrow: EYEBROW_BY_URL[url] ?? 'Documentation',
   });
-  const subtitle = clampSubtitle(description);
-  if (subtitle) params.set('subtitle', subtitle);
   return `/og?${params.toString()}`;
 }
 
@@ -78,7 +68,7 @@ export async function generateMetadata(props: {
   if (!page) notFound();
 
   const { title, description } = page.data;
-  const ogImage = ogImageUrl({ url: page.url, title, description });
+  const ogImage = ogImageUrl({ url: page.url, title });
 
   return {
     title,

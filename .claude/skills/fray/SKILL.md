@@ -170,7 +170,7 @@ The two REAL constraints:
 
 Git hygiene: all work on `main`, no branches/worktrees (repo top rule). Committed work cannot be clobbered — commit small and often.
 
-**Pace by cost, because you CANNOT read the quota.** No env var / command / file carries the Max-plan balance (verified). Pace by proxies: a **tier-weighted concurrency cap** (≈3 heavy Opus/Fable at once; cheap read-only Sonnet/Haiku probes fan wider), react to the only ground-truth signal (**429** → halve concurrency, back off), and treat the human's `/usage` readout as authoritative. On a "hold off" signal: STOP launching, do NOT kill in-flight agents (killing mid-edit orphans WIP), and persist state into the threads.
+**Pace by cost, because you CANNOT read the quota — but do NOT impose an artificial concurrency cap.** No env var / command / file carries the Max-plan balance (verified). There is NO fixed heavy-agent ceiling (the old "≈3 heavy at once" guidance was over-conservative and is removed — fan out as wide as the work genuinely parallelizes). The ONLY real governor is the ground-truth signal: **429 → halve concurrency, back off**; otherwise keep the fleet as busy as there is independent work for. Treat the human's `/usage` readout as authoritative. On a "hold off" signal: STOP launching, do NOT kill in-flight agents (killing mid-edit orphans WIP), and persist state into the threads.
 
 ---
 

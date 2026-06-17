@@ -66,14 +66,24 @@ type CardProps = {
   eyebrow?: string;
   /* Headline — the page title, or the homepage tagline. */
   title: ReactElement | string;
-  /* Optional supporting line under the title (muted). */
-  subtitle?: string;
 };
 
+/* Size the headline by length: short titles read large, long ones step down so
+   they still fit one or two lines. Sized generously — these cards render small
+   in a feed, so the title has to carry from a thumbnail. Element titles (the
+   home tagline) use a fixed size since their length can't be measured here. */
+function titleFontSize(title: ReactElement | string): string {
+  if (typeof title !== 'string') return '108px';
+  if (title.length <= 16) return '132px';
+  if (title.length <= 24) return '112px';
+  return '92px';
+}
+
 /* The card body, shared by the home and per-page cards. The ember glow, ink
-   ground, eyebrow, serif headline, optional subtitle, and footer wordmark are
-   all positioned with the absolute-size geometry Satori needs. */
-function Card({ eyebrow, title, subtitle }: CardProps) {
+   ground, eyebrow, and serif headline are pinned top-left (the title sits
+   directly under the eyebrow); the footer wordmark anchors the bottom. All
+   positioned with the absolute-size geometry Satori needs. */
+function Card({ eyebrow, title }: CardProps) {
   return (
     <div
       style={{
@@ -113,67 +123,48 @@ function Card({ eyebrow, title, subtitle }: CardProps) {
         }}
       />
 
-      {/* Eyebrow: mono, uppercase, tracked — the `.eyebrow` treatment.
-          Omitted entirely on cards that don't pass one (e.g. the home card). */}
-      {eyebrow ? (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            fontFamily: 'IBM Plex Mono',
-            fontWeight: 500,
-            fontSize: '24px',
-            letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-            color: EMBER,
-            position: 'relative',
-          }}
-        >
-          {eyebrow}
-        </div>
-      ) : null}
-
-      {/* Headline + subtitle block, vertically centered in the remaining space. */}
+      {/* Top-left block: mono eyebrow, then the page title set large directly
+          beneath it. No subtitle — the title carries the card, and at
+          feed-thumbnail size a big title reads where a paragraph wouldn't. */}
       <div
         style={{
           display: 'flex',
           flexDirection: 'column',
-          flexGrow: 1,
-          justifyContent: 'center',
           position: 'relative',
         }}
       >
+        {eyebrow ? (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              fontFamily: 'IBM Plex Mono',
+              fontWeight: 500,
+              fontSize: '30px',
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              color: EMBER,
+              marginBottom: '32px',
+            }}
+          >
+            {eyebrow}
+          </div>
+        ) : null}
         <div
           style={{
             display: 'flex',
             flexWrap: 'wrap',
             fontFamily: 'Newsreader',
             fontWeight: 500,
-            fontSize: typeof title === 'string' && title.length > 28 ? '80px' : '96px',
-            lineHeight: 1.04,
+            fontSize: titleFontSize(title),
+            lineHeight: 1.02,
             letterSpacing: '-0.02em',
             color: FOREGROUND,
-            maxWidth: '1000px',
+            maxWidth: '1040px',
           }}
         >
           {title}
         </div>
-        {subtitle ? (
-          <div
-            style={{
-              display: 'flex',
-              marginTop: '32px',
-              fontFamily: 'Newsreader',
-              fontWeight: 400,
-              fontSize: '30px',
-              lineHeight: 1.4,
-              color: MUTED,
-              maxWidth: '880px',
-            }}
-          >
-            {subtitle}
-          </div>
-        ) : null}
       </div>
 
       {/* Footer: wordmark left, domain right. */}
@@ -185,13 +176,13 @@ function Card({ eyebrow, title, subtitle }: CardProps) {
           position: 'relative',
         }}
       >
-        <Wordmark size={40} />
+        <Wordmark size={48} />
         <div
           style={{
             display: 'flex',
             fontFamily: 'IBM Plex Mono',
             fontWeight: 400,
-            fontSize: '22px',
+            fontSize: '26px',
             letterSpacing: '0.04em',
             color: MUTED,
           }}
@@ -210,7 +201,7 @@ export function renderOgImage(props: CardProps) {
 
 /* The homepage card: the punchy tagline, "all-in-one" set in ember italic to
    match the homepage accent treatment. No eyebrow (it just restated the
-   tagline) and no subtitle — the tagline carries it. */
+   tagline) — the tagline carries it. */
 export function renderHomeOgImage() {
   return renderOgImage({
     title: (
@@ -221,14 +212,4 @@ export function renderHomeOgImage() {
       </div>
     ),
   });
-}
-
-/* Clamp a description to a card-friendly length without cutting mid-word. */
-export function clampSubtitle(text: string | undefined, max = 120): string | undefined {
-  if (!text) return undefined;
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= max) return normalized;
-  const cut = normalized.slice(0, max - 1);
-  const lastSpace = cut.lastIndexOf(' ');
-  return `${(lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }

@@ -1,7 +1,7 @@
 {
   "results": [
     {
-      "command": "cd '/tmp/nub-script-runner-bench-yvZDch' && /Users/user/Documents/projects/dun/target/release/nub run noop",
+      "command": "cd '/tmp/nub-script-runner-bench-yvZDch' && /Users/colinmcd94/Documents/projects/dun/target/release/nub run noop",
       "mean": 0.060217666146666675,
       "stddev": 0.0012294932007930472,
       "median": 0.06020415248,

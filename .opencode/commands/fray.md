@@ -6,10 +6,10 @@ Load the `opencode-fray` skill, then reconcile returned tasks before doing new w
 
 Current fray board:
 
-!`node scripts/fray/index.mjs`
+!`node .opencode/fray/index.mjs`
 
 Validation:
 
-!`node scripts/fray/index.mjs --validate`
+!`node .opencode/fray/index.mjs --validate`
 
 Use `.fray/` as the canonical tracker. Create or update the owning thread before dispatching sub-agents.

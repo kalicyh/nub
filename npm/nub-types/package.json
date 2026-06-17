@@ -1,6 +1,6 @@
 {
   "name": "@nubjs/types",
-  "version": "0.0.48",
+  "version": "0.0.49",
   "description": "TypeScript ambient declarations for code authored against the Nub runtime",
   "license": "MIT",
   "repository": "https://github.com/nubjs/nub",

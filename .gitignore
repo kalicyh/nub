@@ -16,6 +16,9 @@
 !.claude/
 !.agents/
 !.opencode/
+!.opencode/opencode.json
+!.opencode/agent/
+!.opencode/agent/*.md
 !.opencode/skills/
 !.opencode/skills/opencode-fray/
 !.opencode/skills/opencode-fray/SKILL.md

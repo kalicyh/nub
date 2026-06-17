@@ -20,11 +20,17 @@ This repo carries fray as an OpenCode-native bundle:
 .opencode/plugins/fray.ts
 .opencode/commands/fray.md
 .opencode/commands/fray-validate.md
+.opencode/fray/core.mjs
+.opencode/fray/index.mjs
+.opencode/opencode.json
+.opencode/agent/*.md
+.opencode/package.json
+.opencode/package-lock.json
 ```
 
 The skill is named `opencode-fray` because OpenCode also discovers Claude-compatible skills under `.claude/skills/`; a project-local skill named `fray` can collide with `.claude/skills/fray/SKILL.md`.
 
-The plugin is the OpenCode equivalent of the hook layer. It hooks Task execution when OpenCode exposes `tool.execute.before`, validates that `THREAD: <slug>` points to an existing `.fray/<slug>.md`, injects a durable `FRAY_DISPATCH_ID`, appends the standard follow-up epilogue, writes a best-effort ledger row, and injects pending fray state into compaction context.
+The plugin is the OpenCode equivalent of the hook layer. It registers custom `fray_status`, `fray_validate`, and `fray_search` tools; injects a per-chat system reminder with pending thread state; hooks Task execution with `tool.execute.before` and `tool.execute.after`; validates that `THREAD: <slug>` points to an existing `.fray/<slug>.md`; injects a durable `FRAY_DISPATCH_ID`; appends the standard follow-up epilogue; writes best-effort ledger rows before and after Task execution; amends the Task tool definition with fray rules; adds `/fray` command context; injects pending fray state into compaction context; and exposes `FRAY_ROOT` / `FRAY_OPENCODE` to shell commands.
 
 The slash commands are entrypoints:
 
@@ -40,8 +46,16 @@ First reconcile any returned sub-agents. A return is not handled until its facts
 Then compute the board:
 
 ```bash
-node scripts/fray/index.mjs
-node scripts/fray/index.mjs --validate
+node .opencode/fray/index.mjs
+node .opencode/fray/index.mjs --validate
+```
+
+Inside OpenCode, prefer the custom tools when available:
+
+```text
+fray_status
+fray_validate
+fray_search
 ```
 
 Use the board to choose the next dispatch. Do not maintain a separate native todo list while fray is active; `.fray/` is the todo substrate.
@@ -52,7 +66,7 @@ Use the board to choose the next dispatch. Do not maintain a separate native tod
 - `.fray/config.yml`: globals only, including `enabled`, `autonomous_mode`, and shared `state` facts.
 - `.fray/<slug>.findings/<id>.md`: optional sidecars for durable sub-agent output.
 - `.fray/.dispatch-ledger.jsonl`: optional durable dispatch metadata. In OpenCode, the thread body is usually enough; use the ledger if a thread has many concurrent task ids.
-- `node scripts/fray/index.mjs`: the computed board. There is no stored board.
+- `.opencode/fray/index.mjs`: the OpenCode-local computed board. There is no stored board.
 
 Thread frontmatter must include `title` and `status`. Status vocabulary is:
 
@@ -113,10 +127,17 @@ Before replying, re-read the current pending list and recent user messages and v
 
 When the active OpenCode tool schema exposes `Task`, OpenCode sub-agents are launched with that tool. Every `Task` return includes a `task_id`. Treat that task id as the durable agent handle.
 
-Use `Task` this way:
+Use `Task` this way after OpenCode has restarted with this project's `.opencode/opencode.json`:
 
-- `subagent_type: "explore"` for codebase exploration, file discovery, keyword search, and focused read-only research.
-- `subagent_type: "general"` for multi-step investigation, implementation, verification, reviews, and anything that may need several tools.
+- `subagent_type: "fray-harvester"` for fully scripted output/log/file-fact harvesting.
+- `subagent_type: "fray-scout"` or `"explore"` for quick codebase discovery, file search, and narrow no-edit maps.
+- `subagent_type: "fray-researcher"` for source-backed investigation and differential probes.
+- `subagent_type: "fray-verifier"` for targeted builds, tests, fixtures, and CI/log checks.
+- `subagent_type: "fray-implementer"` or `"general"` for decided implementation work.
+- `subagent_type: "fray-reviewer"` for independent adversarial review.
+- `subagent_type: "fray-architect"` for hard design and decision-analysis work.
+- `subagent_type: "fray-docs-writer"`, `"fray-aube-engineer"`, or `"fray-frontend-inspector"` for specialized docs, vendored package-manager, or rendered-site work.
+- If the current running session exposes only `"explore"` and `"general"`, restart OpenCode so the project-local profiles are loaded.
 - `task_id: ""` for a fresh dispatch.
 - `task_id: "<previous id>"` only when intentionally resuming that same sub-agent context.
 - `description` as a short human-readable label.
@@ -130,6 +151,13 @@ When `.opencode/plugins/fray.ts` is loaded, thread-scoped Task prompts get a hoo
 4. Tell the agent not to edit `.fray/<slug>.md` or `.fray/config.yml`.
 5. Require a final `## Follow-ups` section; the plugin appends this requirement when it recognizes the Task prompt.
 6. After the task returns, record the returned `task_id` in the thread's `## Status` or relevant step.
+
+OpenCode Task lifecycle facts:
+
+- A completed Task can be resumed with its returned `task_id` when continuity matters.
+- A fresh Task does not fork the current chat. It gets only the context you put in the prompt.
+- There is no exposed live SendMessage-style tool for a running Task in this harness. Do not assume you can steer a running sub-agent mid-flight.
+- A completed worker is no longer active, but OpenCode keeps enough task-session state for intentional `task_id` resume while that session is retained.
 
 For thread-scoped dispatches, start prompts with this shape:
 
@@ -252,7 +280,11 @@ The review prompt should include the original goal, changed files, relevant cons
 Use the tool that matches the orchestration job:
 
 - `Task`: delegate bounded work to `explore` or `general` sub-agents; capture the returned `task_id`.
-- `.opencode/plugins/fray.ts`: OpenCode plugin hooks for Task preflight and compaction context.
+- `fray_status`: custom OpenCode tool for the computed board.
+- `fray_validate`: custom OpenCode tool for thread-frontmatter validation.
+- `fray_search`: custom OpenCode tool for finding threads by id/title/body.
+- `.opencode/plugins/fray.ts`: OpenCode plugin hooks for chat reminders, Task preflight/after ledgering, Task tool-definition guidance, command hooks, shell env, custom tools, and compaction context.
+- `.opencode/fray/index.mjs`: OpenCode-local CLI for board, validation, JSON, status filter, and search.
 - `.opencode/commands/fray.md`: slash-command entrypoint that loads the board and validator into the prompt.
 - `.opencode/commands/fray-validate.md`: slash-command entrypoint for thread-frontmatter validation.
 - `multi_tool_use.parallel`: parallelize independent `read`, `grep`, `glob`, and other safe tool calls.
@@ -268,12 +300,24 @@ Use the `commentary` channel for short progress updates and tool calls while wor
 
 ## Model And Agent Choice
 
-OpenCode exposes sub-agent types, not the Claude/Codex model ladder. Choose by job shape:
+This repo defines GPT-backed fray subagents in `.opencode/agent/*.md`. The project main thread defaults to `openai/gpt-5.5-fast` in `.opencode/opencode.json`; fray subagents deliberately use non-fast GPT models unless the profile is explicitly a cheap probe. Restart OpenCode after agent/config edits before expecting the `Task` tool schema to expose new names.
 
-- Use `explore` for fast codebase discovery and read-only mapping.
-- Use `general` for implementation, multi-step diagnosis, verification, and review.
+Claude Code model-tier mapping:
 
-When the task requires judgment, make the prompt stricter rather than pretending a hidden model tier was selected. Ask the agent to ground every claim in code, commands, or exact output. Re-verify cheap or mechanical findings yourself before acting on them.
+- Haiku-shaped mechanical work -> `fray-harvester` (`openai/gpt-5.4-mini`, `variant: none`) or `fray-scout` / `explore` (`openai/gpt-5.4-mini`, `variant: low`). Use only for fully scripted harvesting, file discovery, and narrow read-only maps.
+- Sonnet-shaped supporting work -> `fray-researcher` or `fray-verifier` (`openai/gpt-5.4`, `variant: medium`). Use for differential probes, source-backed research, test/build runs, and CI/log checking.
+- Opus-shaped engineering work -> `general` or `fray-implementer` (`openai/gpt-5.5`, `variant: high`). Use for diagnosis and fixes that land.
+- Opus/Fable-shaped judgment -> `fray-reviewer` or `fray-architect` (`openai/gpt-5.5`, `variant: xhigh`). Use for adversarial review, architecture, public-surface decisions, and load-bearing verdicts. Never use GPT-5 Pro for fray; it is too expensive for this workflow.
+- Specialized lanes -> `fray-docs-writer` for docs/copy, `fray-aube-engineer` for vendored aube/fork/pin work, and `fray-frontend-inspector` for rendered-site/browser QA.
+
+Agent selection norms:
+
+- Use the cheapest profile that can reliably do the work, but do not let cheap profiles return subtle verdicts.
+- Use `fray-reviewer` as a fresh independent pass for any substantive code, copy, behavior, public-surface, test, benchmark, or load-bearing research result.
+- Use `task_id` resume only when continuity matters with the same completed agent; use a fresh `fray-reviewer` for clean-room review.
+- If a custom profile is not available in the current Task schema, restart OpenCode. Until restart, fall back to `general` for deep work and `explore` for read-only discovery.
+
+OpenCode exposes `variant` through agent config, not through the in-chat `Task` call. Do not claim you selected effort per dispatch unless you selected a named agent profile whose config carries that model/variant.
 
 ## Human Decisions
 
@@ -286,8 +330,9 @@ Batch questions at checkpoints. Use `question` when the active tool schema expos
 Use these checks after changing fray files or OpenCode skill guidance:
 
 ```bash
-node scripts/fray/index.mjs --validate
+node .opencode/fray/index.mjs --validate
 opencode debug skill
+opencode debug config
 ```
 
 If you edit this skill, preserve the invariants: `.fray/` is canonical, the board is computed, only the orchestrator edits thread files, task ids are recorded on return, and every returned sub-agent is reconciled before the thread is marked done.
