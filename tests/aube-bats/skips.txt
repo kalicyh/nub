@@ -38,6 +38,9 @@ install.bats|aube run auto-installs when installed package metadata is missing|'
 install.bats|aube install ignores --network-concurrency=0 and falls back to default|test invokes 'aube -v' — nub's -v is --version (reserved); re-evaluate when the flag wiring lands
 add.bats|aube add: refuses to add to workspace root with aube-workspace.yaml|nub-divergence: aube-workspace.yaml is not consulted (workspace-yaml toggle restricts discovery to pnpm-workspace.yaml), so it cannot define a workspace root — the pnpm-workspace.yaml variant asserts the guard
 
+# ── pnpm-parity divergences (decision C: nub extends aube's behavior to match pnpm) ──
+add.bats|aube add --save-peer writes only peerDependencies and does not install|nub dual-writes --save-peer to devDependencies+peerDependencies for pnpm parity (decision C); aube asserts peerDependencies-only
+
 # ── aube-lock.yaml is another tool's file (canonical-lockfile name = lock.yaml) ──
 # The basic fixture commits an aube-lock.yaml; under nub the engine's
 # canonical-lockfile slot carries the generic lock.yaml name (two-mode model),
