@@ -2,8 +2,10 @@ import type { ReactNode } from 'react';
 
 // At-a-glance support summary: one row per INFERRED package manager, with a
 // flat set of code chips for the config files / package.json fields / env-var
-// prefixes it reads. A green check = honored, a red X = a deliberate gap.
-// Chips are grounded in each PM's detailed CompatTable on its own install page.
+// prefixes it reads. A green check = honored, an amber check = partial, a red
+// X = a deliberate gap. A chip with a `note` reveals the partial breakdown on
+// hover/focus (CSS-only tooltip + sr-only text). Chips are grounded in each
+// PM's detailed CompatTable on its own install page.
 
 interface PmItem {
   /** A config file, package.json field, or env-var glob — rendered as a code chip. */
@@ -11,6 +13,8 @@ interface PmItem {
   ok: boolean;
   /** Amber glyph — partial support (e.g. read-only). Overrides `ok` for the icon. */
   partial?: boolean;
+  /** Plain-text breakdown surfaced on hover/focus of the chip. */
+  note?: string;
 }
 
 interface PmRow {
@@ -79,12 +83,38 @@ function CrossIcon() {
 // Sort rank so chips render supported → partial → unsupported (greens first).
 const chipRank = (it: PmItem) => (it.partial ? 1 : it.ok ? 0 : 2);
 
-function Chip({ code, ok, partial }: PmItem) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-md border border-fd-border bg-fd-muted/40 px-2 py-1 font-mono text-xs">
-      {partial ? <PartialIcon /> : ok ? <CheckIcon /> : <CrossIcon />}
+function Chip({ code, ok, partial, note }: PmItem) {
+  const glyph = partial ? <PartialIcon /> : ok ? <CheckIcon /> : <CrossIcon />;
+  const label = partial ? 'Partially supported' : ok ? 'Supported' : 'Not supported';
+  const chip = (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md border border-fd-border bg-fd-muted/40 px-2 py-1 font-mono text-xs ${
+        note ? 'cursor-help' : ''
+      }`}
+    >
+      {glyph}
       <span className={partial || ok ? 'text-fd-foreground' : 'text-fd-muted-foreground'}>
         {code}
+      </span>
+      <span className="sr-only">
+        {`. ${label}`}
+        {note ? `. ${note}` : ''}
+      </span>
+    </span>
+  );
+  if (!note) return chip;
+  // Reveal the breakdown on hover/focus via a CSS-only `group` + `group-hover`/
+  // `group-focus-within` tooltip, mirroring the per-PM CompatTable pattern. The
+  // wrapper is focusable and carries a native `title` so it's reachable by
+  // pointer, keyboard, and screen readers alike.
+  return (
+    <span className="group relative inline-flex" tabIndex={0} title={note}>
+      {chip}
+      <span
+        role="tooltip"
+        className="pointer-events-none invisible absolute left-1/2 top-full z-20 mt-1.5 w-64 -translate-x-1/2 whitespace-normal rounded-md border border-fd-border bg-fd-popover px-3 py-2 text-left text-xs font-normal leading-relaxed text-fd-popover-foreground opacity-0 shadow-md transition-opacity duration-100 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+      >
+        {note}
       </span>
     </span>
   );
