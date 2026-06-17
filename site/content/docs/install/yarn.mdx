@@ -28,8 +28,8 @@ Both formats are read:
     { feature: <code>packageManager</code>, status: 'yes' },
     { feature: <><code>nodeLinker: node-modules</code> / <code>pnpm</code></>, status: 'partial', note: 'mapped to Nub linkers' },
     { feature: <code>nodeLinker: pnp</code>, status: 'no', note: 'PnP install generation is out of scope' },
-    { feature: <code>dependenciesMeta.*.built</code>, status: 'no' },
-    { feature: <code>packageExtensions</code>, status: 'no' },
+    { feature: <code>dependenciesMeta.*.built</code>, status: 'yes' },
+    { feature: <code>packageExtensions</code>, status: 'yes' },
     { feature: <code>supportedArchitectures</code>, status: 'no' },
     { feature: <code>.npmrc</code>, status: 'yes' },
   ]}
@@ -97,7 +97,7 @@ npmRegistries:
 nodeLinker: node-modules
 ```
 
-Nub reads the global `~/.yarnrc.yml` plus any project `.yarnrc.yml` files from the workspace root down to the current project directory; nearer project files win. The support is intentionally narrow: CA/proxy fields, `packageExtensions`, `supportedArchitectures`, constraints, plugins, patch-folder config, and Yarn cache layout are still ignored.
+Nub reads the global `~/.yarnrc.yml` plus any project `.yarnrc.yml` files from the workspace root down to the current project directory; nearer project files win. The support is intentionally narrow: CA/proxy fields, `supportedArchitectures`, constraints, plugins, patch-folder config, and Yarn cache layout are still ignored.
 
 Classic `.yarnrc` (Yarn 1) gets the same basic treatment for its core registry and auth fields. Its keys are already npmrc-shaped, so Nub reads them directly:
 
@@ -129,6 +129,4 @@ Yarn Berry defaults to PnP when `nodeLinker` is absent, so a Berry project with 
 
 Several Yarn `package.json` and `.yarnrc.yml` fields still have no effect under Nub:
 
-- `dependenciesMeta.<pkg>.built` — Yarn's per-package build gate is not read; Nub uses its own build-script approval (`nub approve-builds`),
-- `packageExtensions` — Yarn's resolution patches are not applied,
 - `supportedArchitectures` — Yarn's platform/arch download controls are not read.
