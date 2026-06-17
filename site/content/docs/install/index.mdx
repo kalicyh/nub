@@ -421,6 +421,22 @@ Passing `--node-linker hoisted` produces a flat, npm-style layout instead. npm, 
 
 When the global store already holds every package, a warm install relinks files from that store into `node_modules` via reflink (APFS/btrfs) or hardlink (ext4) — no re-download, no byte-for-byte copy. This is why warm reinstalls are significantly faster: the store avoids redundant I/O regardless of which layout (`isolated` or `hoisted`) the project uses.
 
+<Bench
+  label="warm reinstall · create-t3-app · macOS"
+  accent="pink"
+  max={4163}
+  rows={[
+    { cmd: 'nub install', ms: 1122, us: true },
+    { cmd: 'bun install', ms: 1444, ratio: 1.29 },
+    { cmd: 'pnpm install', ms: 2847, ratio: 2.5 },
+    { cmd: 'npm ci', ms: 4163, ratio: 3.7 },
+  ]}
+/>
+
+<Callout title="Warm reinstall, not cold">
+These numbers are the warm-reinstall case — a populated store and an existing lockfile, with `node_modules` cleared — where the relinking path is the whole cost. A cold install (empty store, fetching from the registry) is a different workload, and Nub does not lead there.
+</Callout>
+
 ```bash
 nub install            # offline when the store already holds every package
 nub install --offline  # force offline

@@ -14,6 +14,18 @@ nub dlx -p cowsay -c 'cowsay hi | tr a-z A-Z'  # one-off tool, no install, shell
 
 For a locally-resolved bin, `nubx` does the `node_modules/.bin` walk-up in Rust and exec's the resolved binary directly, so the wrapper overhead that `npx` and `pnpm exec` pay on every call — a full Node bootstrap — approximately disappears: 19× lighter than `npx` on a native CLI like `esbuild` (and roughly 17× lighter than `pnpm exec`). The tool that actually runs is identical to what `npx` would run; only the wrapper gets out of the way.
 
+<Bench
+  label="dispatch a locally-installed CLI · 50 runs"
+  accent="sky"
+  max={201}
+  rows={[
+    { cmd: 'nubx', ms: 11.6, us: true, label: 'tie with bun x' },
+    { cmd: 'bun x', ms: 10.6 },
+    { cmd: 'pnpm exec', ms: 175, ratio: 15 },
+    { cmd: 'npm exec', ms: 201, ratio: 17 },
+  ]}
+/>
+
 This page is task-oriented. For the bigger picture see the [Introduction](/docs); for running files and scripts see [running files](/docs/runtime) and [running scripts](/docs/run).
 
 ## Run a local CLI

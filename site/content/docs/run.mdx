@@ -17,6 +17,20 @@ nub run test
 
 Running a script is always `nub run <script>` — barewords like `nub dev` do not fall through to scripts. (If you type `nub build` and `build` is a real script, Nub's error tells you to type `nub run build`.) See [Running files](/docs/runtime) for how `nub <file>` works.
 
+Dispatch is handled in Rust with no Node bootstrap in the wrapper, so the runner adds only a few milliseconds before your script's first byte — faster than Node's own `node --run`:
+
+<Bench
+  label="script dispatch · warm · 50 runs"
+  accent="acid"
+  max={442.7}
+  rows={[
+    { cmd: 'nub run', ms: 14.7, us: true },
+    { cmd: 'node --run', ms: 32.2, ratio: 2.2 },
+    { cmd: 'npm run', ms: 329.9, ratio: 22 },
+    { cmd: 'pnpm run', ms: 442.7, ratio: 30 },
+  ]}
+/>
+
 ## Forward arguments
 
 Trailing arguments after the script name are passed straight through to the script. You do not need the `--` separator that `npm run` requires.
