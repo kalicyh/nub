@@ -632,7 +632,15 @@ jobs:
           BIN="nub-linux-x64/bin/nub"
           # The upload→download artifact round-trip strips the +x mode bit.
           chmod +x "$BIN" nub-linux-x64/bin/nubx
-          REPORTED="$("$BIN" --version 2>&1 | tr -d '[:space:]')"
+          # `nub --version` prints `v<semver>` on STDOUT (print_version's
+          # `println!("v{}", …)`) and an informational `» node v… (provenance)`
+          # line on STDERR. Read STDOUT ONLY (drop 2>&1) so the stderr provenance
+          # line doesn't contaminate the match, take the first line, then strip the
+          # leading `v` so it compares apples-to-apples with the tag (which we also
+          # strip the leading `v` from). Both 2>&1 + the un-stripped `v` would make
+          # the equality below NEVER hold — failing every real release at this gate.
+          REPORTED="$("$BIN" --version 2>/dev/null | head -1 | tr -d '[:space:]')"
+          REPORTED="${REPORTED#v}"
           echo "binary reports: '$REPORTED'"
           # On a tag push the expected version is the tag (minus the leading v); on a
           # manual publish dispatch there's no tag, so just assert it runs + prints a
