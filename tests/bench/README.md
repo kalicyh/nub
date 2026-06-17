@@ -10,7 +10,7 @@ Three benchmarks make up the suite. Run each on a QUIET machine (see the load wa
 |-----------|--------|----------------|
 | Warm install — GVS eligible | `run-warm-gvs.sh --fixture gvs-eligible` | `nub install` warm-install time vs pnpm, on a project where nub's global virtual store stays ON. |
 | Warm install — GVS ineligible | `run-warm-gvs.sh --fixture gvs-ineligible` | With `next` present, GVS auto-disables and nub ≈ pnpm. |
-| Script-runner dispatch | `run-script-runner-pure.sh` | `nub run` dispatch overhead vs pnpm/npm on a PURE-SHELL script. |
+| Script-runner dispatch | `run-script-runner-vs-node.sh` | `nub run` dispatch overhead vs `node --run`, npm, and pnpm on pure-shell and empty-Node script bodies. |
 
 ### Warm install — the GVS-eligibility split
 
@@ -33,13 +33,22 @@ NUB=/path/to/target/release/nub bash tests/bench/run-warm-gvs.sh
 NUB=… bash tests/bench/run-warm-gvs.sh --fixture gvs-eligible --runs 12 --warmup 3
 ```
 
-### Script-runner dispatch — PURE-SHELL only
+### Script-runner dispatch — `nub run` vs `node --run`
 
-The script-runner benchmark measures how fast each tool looks up a `package.json` script and dispatches it. **The script under test MUST be pure-shell (`"noop": "true"`), never `node -e …`.** Node's ~40 ms cold startup swamps the few-ms runner overhead and dilutes the exact thing being measured. The older `run-script-runner.sh` used `node -e ""` and is kept only for historical comparison; `run-script-runner-pure.sh` is the one to use.
+The canonical script-runner benchmark measures how fast each tool looks up a `package.json` script and dispatches it. It runs two no-dependency fixtures: a pure-shell script (`"noop": "true"`) that isolates runner dispatch, and an empty Node body (`"noop": "node -e \"\""`) that shows how much the dispatch delta is diluted once the script itself also boots Node. The same harness compares `nub run`, `node --run`, `npm run`, and `pnpm run`, verifies every command exits 0 before timing, and writes hyperfine JSON to `tests/bench/results/`.
 
 ```bash
-NUB=… bash tests/bench/run-script-runner-pure.sh --runs 30 --warmup 5
+cargo build --release -p nub-cli
+NUB=target/release/nub bash tests/bench/run-script-runner-vs-node.sh --runs 100 --warmup 10
 ```
+
+For a quick smoke test, lower the sample count and bypass the quiet-machine gate:
+
+```bash
+NUB=target/release/nub bash tests/bench/run-script-runner-vs-node.sh --runs 1 --warmup 0 --max-load 999
+```
+
+The older `run-script-runner-pure.sh` and `run-script-runner.sh` harnesses are kept for historical comparisons against npm/pnpm-only runs; use `run-script-runner-vs-node.sh` for the published `node --run` comparison.
 
 ### Correctness gotcha: the timed command must start with NO node_modules (the bun no-op)
 
