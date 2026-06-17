@@ -70,7 +70,21 @@ user      ~/.npmrc, or NPM_CONFIG_USERCONFIG
 project   ./.npmrc
 ```
 
-Everything at those scopes works — default and scoped registries, auth tokens, TLS (`strict-ssl`, `cafile`), proxies, and install-shaping keys like `engine-strict` and `save-exact`. The `npm_config_*` env vars drive install behavior too. Precedence matches npm, highest first: CLI flags, then `npm_config_*`, then project, user, global, and builtin `.npmrc`.
+Everything at those scopes works — default and scoped registries, auth tokens, TLS, proxies, and install-shaping keys like `engine-strict` and `save-exact`. The `npm_config_*` env vars drive install behavior too. Precedence matches npm, highest first: CLI flags, then `npm_config_*`, then project, user, global, and builtin `.npmrc`.
+
+### Custom CAs
+
+Corporate or self-signed certificate authorities are configured through the standard npm TLS keys, top-level or scoped to one registry:
+
+```ini
+# .npmrc
+cafile=./corp-ca.pem                          # PEM bundle, all registries
+ca="-----BEGIN CERTIFICATE-----..."           # inline PEM (repeat ca[]= to stack)
+//registry.example.com/:cafile=./corp-ca.pem  # per-registry override
+strict-ssl=false                              # disable verification (user/global scope only)
+```
+
+The certificates are added to the trust store of the install client. A committed project `.npmrc` cannot turn off `strict-ssl` — only the user or global scope can.
 
 ## Install behavior
 

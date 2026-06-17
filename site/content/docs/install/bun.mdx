@@ -100,12 +100,13 @@ Nub identity, npm, pnpm, yarn, and fresh projects do not read `bunfig.toml`; the
 
 ## Gaps
 
-- **Partial `bunfig.toml` only.** Runtime/test/serve fields, security scanner config, cache/global-dir behavior, `cafile` / `ca`, and the rest of Bun's install config are not implemented. For registry/auth that must be shared across tools, `.npmrc` remains the most portable home:
+- **Partial `bunfig.toml` only.** Runtime/test/serve fields, security scanner config, cache/global-dir behavior, and the rest of Bun's install config are not implemented. Custom CAs are supported, but through `.npmrc` rather than bunfig's own `cafile` key, which the install-only reader does not parse. The `.npmrc` `cafile` / `ca` keys (top-level and per-registry) work under every incumbent — see [Custom CAs](/docs/install/npm#custom-cas). For registry, auth, or TLS that must be shared across tools, `.npmrc` is the most portable home:
 
   ```ini
   # .npmrc — honored by both nub and bun
   //registry.example.com/:_authToken=${NPM_TOKEN}
   @myscope:registry=https://registry.example.com/
+  cafile=./corp-ca.pem
   ```
 
   Scope-local credentials that use the same registry URL as the default registry are also not faithfully representable in Nub's current registry model. Nub keeps the scoped registry route, but does not widen those credentials into registry-wide auth.
