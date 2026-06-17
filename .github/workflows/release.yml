@@ -607,31 +607,72 @@ jobs:
           echo "✓ linux-x64 binary runs on bookworm/glibc-2.36 — floor is low enough for slim images"
 
   pre-publish-gate:
-    # Smoke the FRESHLY-BUILT artifact BEFORE anything is published, so a broken
+    # Smoke the FRESHLY-BUILT artifacts BEFORE anything is published, so a broken
     # build (one that builds + links but can't actually run / reports the wrong
     # version) FAILS THE RELEASE here instead of after npm has the bits. Distinct
-    # from glibc-floor-guard (which proves the binary *links* on an old glibc):
-    # this gate proves the binary RUNS and self-reports the EXACT release version,
-    # asserting `nub --version` == the tag. `publish-npm` needs: this job, so a
-    # version-mismatch or non-runnable binary blocks publish. Cheap: one host-arch
-    # leg (linux-x64) on the bare runner — no install, just exec the staged binary.
-    name: Pre-publish smoke gate (built linux-x64)
+    # from glibc-floor-guard (which proves the linux-x64 binary *links* on an old
+    # glibc): this gate proves each binary RUNS on its NATIVE platform and self-
+    # reports the EXACT release version, asserting `nub --version` == the tag.
+    # `publish-npm` needs: this whole matrix, so a version-mismatch or non-runnable
+    # binary on ANY hosted-runner platform blocks publish.
+    #
+    # MATRIX coverage mirrors the test-install runner set (the only platforms with
+    # GitHub-hosted runners on which a freshly-built binary can be exec'd natively):
+    #   PRE-PUBLISH (gated here, native exec of the BUILT artifact, blocks publish):
+    #     linux-x64       (ubuntu-latest)
+    #     darwin-arm64    (macos-14)
+    #     win32-x64       (windows-latest)
+    #     win32-arm64     (windows-11-arm)
+    #     linux-x64-musl  (node:22-alpine container on ubuntu-latest)
+    #   POST-PUBLISH ONLY (no hosted runner for the build's arch/libc — cannot be
+    #   exec'd here; the PUBLISHED package is smoked on its native host by
+    #   test-install / test-install-musl after publish):
+    #     darwin-x64, linux-arm64, linux-arm64-musl
+    # Cheap: no install, no build — each leg only downloads ITS platform artifact
+    # and exec's the staged binary once.
+    name: Pre-publish smoke gate (${{ matrix.platform }})
     if: ${{ github.event_name == 'push' || inputs.publish }}
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-latest
+            bin: bin/nub
+          - platform: darwin-arm64
+            runner: macos-14
+            bin: bin/nub
+          - platform: win32-x64
+            runner: windows-latest
+            bin: bin/nub.exe
+          - platform: win32-arm64
+            runner: windows-11-arm
+            bin: bin/nub.exe
+          - platform: linux-x64-musl
+            runner: ubuntu-latest
+            container: node:22-alpine
+            bin: bin/nub
     steps:
-      - name: Download linux-x64 platform package
+      # The alpine container is toolchain-bare: bash for the smoke shell below.
+      - name: Toolchain (bash, musl container only)
+        if: ${{ matrix.container != '' }}
+        run: apk add --no-cache bash
+      - name: Download ${{ matrix.platform }} platform package
         uses: actions/download-artifact@v4
         with:
-          name: nub-linux-x64
-          path: nub-linux-x64
+          name: nub-${{ matrix.platform }}
+          path: nub-pkg
       - name: Assert the built binary runs and reports the release version
         shell: bash
         run: |
           set -euo pipefail
-          BIN="nub-linux-x64/bin/nub"
-          # The upload→download artifact round-trip strips the +x mode bit.
-          chmod +x "$BIN" nub-linux-x64/bin/nubx
+          BIN="nub-pkg/${{ matrix.bin }}"
+          # The upload→download artifact round-trip strips the +x mode bit on POSIX
+          # (no-op on Windows). Re-apply to both staged copies before exec.
+          chmod +x "nub-pkg/bin"/* 2>/dev/null || true
           # `nub --version` prints `v<semver>` on STDOUT (print_version's
           # `println!("v{}", …)`) and an informational `» node v… (provenance)`
           # line on STDERR. Read STDOUT ONLY (drop 2>&1) so the stderr provenance
@@ -641,23 +682,23 @@ jobs:
           # the equality below NEVER hold — failing every real release at this gate.
           REPORTED="$("$BIN" --version 2>/dev/null | head -1 | tr -d '[:space:]')"
           REPORTED="${REPORTED#v}"
-          echo "binary reports: '$REPORTED'"
+          echo "${{ matrix.platform }} binary reports: '$REPORTED'"
           # On a tag push the expected version is the tag (minus the leading v); on a
           # manual publish dispatch there's no tag, so just assert it runs + prints a
           # non-empty semver-ish string.
           if [ "${{ github.event_name }}" = "push" ]; then
             EXPECTED="${GITHUB_REF_NAME#v}"
             if [ "$REPORTED" != "$EXPECTED" ]; then
-              echo "::error::built linux-x64 binary reports version '$REPORTED' but the release tag is '$EXPECTED'. A broken/stale build must not publish."
+              echo "::error::built ${{ matrix.platform }} binary reports version '$REPORTED' but the release tag is '$EXPECTED'. A broken/stale build must not publish."
               exit 1
             fi
-            echo "✓ built binary reports the release version ($EXPECTED) — safe to publish"
+            echo "✓ ${{ matrix.platform }} binary reports the release version ($EXPECTED) — safe to publish"
           else
             if [ -z "$REPORTED" ]; then
-              echo "::error::built linux-x64 binary produced no --version output — refusing to publish a non-runnable build."
+              echo "::error::built ${{ matrix.platform }} binary produced no --version output — refusing to publish a non-runnable build."
               exit 1
             fi
-            echo "✓ built binary runs and reports version '$REPORTED' (dispatch — no tag to match)"
+            echo "✓ ${{ matrix.platform }} binary runs and reports version '$REPORTED' (dispatch — no tag to match)"
           fi
 
   publish-npm:
