@@ -180,6 +180,33 @@ pre span[style*='#6a737d'] {
   color: #8f8a80 !important;
 }
 
+/* ```console fences get a terminal look via the `nub:console` shiki transformer
+   (`src/lib/shiki-console.ts`): command lines carry `data-cmd`, output lines
+   carry `data-output`, and the `$ ` prompt is split into a `.console-prompt`
+   span. The transformer is presentation-free; all the colors live here.
+
+   Shiki writes inline `color:` styles on every token span and fumadocs' theme
+   rule (`.dark .shiki code span { color: var(--shiki-dark) }`, specificity
+   0,2,2) outranks these selectors, so every color override needs `!important`
+   to win — the prompt included. */
+
+/* The `$ ` prompt — ember accent, unselectable so a copy skips it (mirrors the
+   hand-built Terminal/ShimDemo components). */
+pre .line .console-prompt {
+  color: var(--color-ember) !important;
+  user-select: none;
+}
+
+/* Command text reads bright (full foreground). */
+pre .line[data-cmd] span:not(.console-prompt) {
+  color: var(--color-fd-foreground) !important;
+}
+
+/* Output lines are dimmed — the command/output differentiation. */
+pre .line[data-output] span {
+  color: var(--color-fd-muted-foreground) !important;
+}
+
 /* IBM Plex Mono against the Newsreader serif body. Prose is dominated by
    lowercase, so the perceived size of an inline-code token is governed by its
    x-height, not its cap-height — and Plex Mono's x-height runs tall. At the old

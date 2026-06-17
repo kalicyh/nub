@@ -5,6 +5,8 @@ import {
   frontmatterSchema,
 } from 'fumadocs-mdx/config';
 import { z } from 'zod';
+import { rehypeCodeDefaultOptions } from 'fumadocs-core/mdx-plugins';
+import { transformerConsole } from './src/lib/shiki-console';
 
 export const docs = defineDocs({
   dir: 'content/docs',
@@ -29,4 +31,19 @@ export const blog = defineCollections({
   },
 });
 
-export default defineConfig();
+export default defineConfig({
+  mdxOptions: {
+    // Warm `vesper` theme (matches the homepage `<Source>` cards), plus a
+    // transformer that gives ```console fences a terminal look — ember `$`
+    // prompt, bright commands, dimmed output. See `src/lib/shiki-console.ts`.
+    rehypeCodeOptions: {
+      themes: { light: 'vesper', dark: 'vesper' },
+      // Keep fumadocs' default notation transformers (highlight/diff/focus/word)
+      // and append the console terminal-look transformer.
+      transformers: [
+        ...(rehypeCodeDefaultOptions.transformers ?? []),
+        transformerConsole(),
+      ],
+    },
+  },
+});
