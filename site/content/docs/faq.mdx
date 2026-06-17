@@ -246,7 +246,13 @@ Deno's first commit is from 2018, three years before `module.register()` and sev
 
 ## How is it different from `node --run`?
 
-Node itself shipped a built-in script runner in 22.0 (`node --run`, April 2024). It's fast — roughly 6× faster than `npm run` per Node's own benchmarks — but deliberately stripped down: no `pre` / `post` lifecycle hooks, no workspace-aware lookup, no package-manager env vars (`npm_*`), no implicit arg forwarding through `--`. Real projects routinely hit one of those gaps and fall back to `pnpm run`. The goal for `nub run` is `node --run` speed without the compatibility cliff — same script lookup, same `npm_*` environment variables, same `node_modules/.bin` PATH chain, same `pre` / `post` lifecycle hooks, plus `pnpm`-style workspace filters.
+Node shipped a built-in script runner in 22.0 — `node --run` — and it's genuinely fast. But it's deliberately minimal, and the gaps are why projects still reach for `pnpm run`:
+
+- No `pre` / `post` lifecycle hooks.
+- No workspaces — no recursive or filtered runs across a monorepo.
+- No `npm_*` environment variables (`npm_package_*`, `npm_config_*`, `npm_lifecycle_event`) that countless scripts read.
+
+`nub run` is just as fast and closes all three, so scripts written for `npm` or `pnpm` keep working unchanged.
 
 ## What if I want to stop using Nub?
 
