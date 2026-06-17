@@ -29,9 +29,9 @@ use super::Pm;
 // Shim names and the decision core
 // ---------------------------------------------------------------------------
 
-/// The binaries the shim dir intercepts. `nub` itself is linked too (see
-/// [`SHIM_NAMES`]) but is dispatched by the existing `Argv0` machinery, not by
-/// this enum — these are only the PM-shaped names.
+/// The binaries the shim dir intercepts — the PM-shaped names. `nub` itself is
+/// NOT shimmed: it is already on PATH via `~/.nub/bin` and a `nub` argv0 is
+/// dispatched by the existing `Argv0` machinery, not by this enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShimName {
     Npm,
@@ -332,15 +332,17 @@ pub fn safe_redirect(pinned: Pm, args: &[String]) -> Option<String> {
 // Shim dir management
 // ---------------------------------------------------------------------------
 
-/// The PM names the shim dir intercepts (also the reachability-check set —
-/// `nub` is deliberately not checked there: the official `~/.nub/bin/nub`
-/// resolving first is benign, both are nub).
+/// The PM names the shim dir intercepts — also the set [`install_shims`] links
+/// and the reachability-check set. `nub` itself is deliberately NOT shimmed:
+/// `install.sh` already puts `~/.nub/bin/nub` on PATH, and a `nub` argv0 is
+/// dispatched by [`Argv0`](../../../nub_cli/cli/enum.Argv0.html) regardless of
+/// the shim dir, so a `~/.nub/shims/nub` hardlink intercepts nothing.
 pub const PM_SHIM_NAMES: [&str; 6] = ["npm", "npx", "pnpm", "pnpx", "yarn", "yarnpkg"];
 
-/// Everything [`install_shims`] links: the PM names plus a `nub` hardlink, so
-/// `nub pm unshim` still resolves after the official binary is uninstalled
-/// (the inode survives while any hardlink remains).
-pub const SHIM_NAMES: [&str; 7] = ["npm", "npx", "pnpm", "pnpx", "yarn", "yarnpkg", "nub"];
+/// Everything [`install_shims`] links — the six PM names. Kept as a named alias
+/// of [`PM_SHIM_NAMES`] so the install/report path reads as "the full shim set"
+/// while the reachability path reads as "the PM set"; they are now identical.
+pub const SHIM_NAMES: [&str; 6] = PM_SHIM_NAMES;
 
 /// `~/.nub/shims` — sibling of `install.sh`'s `~/.nub/bin`.
 pub fn shim_dir() -> Result<PathBuf> {
@@ -485,9 +487,9 @@ pub fn install_shims_into(dir: &Path, nub_binary: &Path) -> Result<Vec<Installed
     let mut report = Vec::with_capacity(SHIM_NAMES.len());
     for name in SHIM_NAMES {
         let target = dir.join(shim_file_name(name));
-        // Same bytes already (covers the self-link case: re-running `nub pm
-        // shim` FROM the shim dir's own nub after the official binary was
-        // removed — remove-then-link would delete the link's source).
+        // Already a hardlink of these exact bytes (same device + inode) — leave
+        // it in place and skip the remove-then-link window entirely. This is the
+        // common idempotent re-run / `nub upgrade` no-op-entry case.
         if same_file(nub_binary, &target) {
             report.push(InstalledShim {
                 name,
@@ -1586,7 +1588,7 @@ mod tests {
         write_exec(&bin, "#!/bin/sh\necho v1\n");
         let shims = root.join("shims");
 
-        // Fresh install: all 7 names created as hardlinks (same inode, no copy).
+        // Fresh install: every PM name created as a hardlink (same inode, no copy).
         let first = install_shims_into(&shims, &bin).unwrap();
         assert_eq!(first.len(), SHIM_NAMES.len());
         let src_ino = std::fs::metadata(&bin).unwrap().ino();
@@ -1633,17 +1635,17 @@ mod tests {
             assert_eq!(std::fs::metadata(&shim.path).unwrap().ino(), new_ino);
         }
 
-        // Post-uninstall: the official nub is gone; re-running FROM the shim
-        // dir's own `nub` hardlink must not delete its own link source.
-        std::fs::remove_file(&bin).unwrap();
-        let fourth = install_shims_into(&shims, &shims.join("nub")).unwrap();
+        // Self-link guard: re-running with the nub binary path pointing AT an
+        // existing shim entry (same inode) must take the same-bytes no-op path
+        // and never delete its own link source — the `same_file` short-circuit.
+        let fourth = install_shims_into(&shims, &shims.join("pnpm")).unwrap();
         assert!(
             fourth.iter().all(|s| s.action == ShimAction::Current),
             "self-link re-run leaves the already-linked entries alone, got {fourth:?}"
         );
         assert!(
-            shims.join("nub").is_file() && shims.join("pnpm").is_file(),
-            "the shim dir survives a re-link from its own nub"
+            shims.join("pnpm").is_file() && shims.join("npm").is_file(),
+            "the shim dir survives a re-link from one of its own entries"
         );
     }
 

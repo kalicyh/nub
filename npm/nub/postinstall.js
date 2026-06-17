@@ -73,9 +73,10 @@ function chmodExecutable(pkg) {
 // cross-device copy fallback, same dev+ino currency check as the Rust installer.
 //
 // Best-effort like everything here: any per-entry failure skips that entry — a
-// stale shim is degraded, not broken (the shim-dir `nub` entry re-execs the real
-// nub found past the shim dir, and `nub pm shim` re-links by hand).
-const SHIM_NAMES = ["npm", "npx", "pnpm", "pnpx", "yarn", "yarnpkg", "nub"];
+// stale shim is degraded, not broken (`nub` is on PATH via ~/.nub/bin and is
+// never shimmed; `nub pm shim` re-links the PM names by hand). Mirrors the
+// Rust installer's PM_SHIM_NAMES in crates/nub-core/src/pm/shim.rs.
+const SHIM_NAMES = ["npm", "npx", "pnpm", "pnpx", "yarn", "yarnpkg"];
 
 function refreshShims(pkg) {
   const ext = process.platform === "win32" ? ".exe" : "";
