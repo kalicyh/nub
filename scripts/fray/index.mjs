@@ -12,8 +12,15 @@
  * Usage:
  *   node scripts/fray/index.mjs               # print the board (grouped by status) + any validation errors
  *   node scripts/fray/index.mjs --status todo # print only threads in one status
- *   node scripts/fray/index.mjs --validate    # print ONLY validation errors; exit 1 if any (for the hook / CI)
+ *   node scripts/fray/index.mjs --validate    # print ONLY validation errors; exit 1 if any (for the hook / CI). --check is an alias.
  *   node scripts/fray/index.mjs --json        # machine-readable {config, threads, errors}
+ *
+ * Thread DEPENDENCIES are expressed entirely in per-thread frontmatter — an optional
+ * `depends_on: [slug, ...]` array naming OTHER THREAD SLUGS (the same files the board
+ * already scans; NOT an external registry). When every target is terminal (done/
+ * dismissed) the board prints `▶ READY — dependencies clear, dispatch now`; otherwise
+ * it lists the outstanding blockers. Computed on demand from the scanned statuses —
+ * there is no stored dependency graph.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -27,6 +34,23 @@ const FRAY_DIR = join(PROJECT_DIR, '.fray');
 // STATUS/TERMINAL are imported from ./config.mjs — the single shared source the hooks
 // also use, so the vocab can never drift between the tool and the reminder hook.
 const REQUIRED = ['title', 'status']; // created / last_update are optional.
+
+/**
+ * Parse a YAML inline-array value (`[a, b, c]` or empty `[]`) into a string list.
+ * Bare scalars (`a` / `"a"`) are tolerated and wrapped as a single-element list.
+ * Self-contained by design: each entry is a THREAD SLUG that the board already
+ * scans — `depends_on` references other thread files, never an external registry.
+ * @param {string | undefined} raw
+ * @returns {string[]}
+ */
+function parseList(raw) {
+  if (!raw) return [];
+  const inner = raw.trim().replace(/^\[|\]$/g, '');
+  return inner
+    .split(',')
+    .map((s) => s.trim().replace(/^["']|["']$/g, ''))
+    .filter(Boolean);
+}
 
 /**
  * Parse a top-of-file `--- … ---` YAML frontmatter block (flat `key: value` only).
@@ -80,12 +104,35 @@ const threads = readdirSync(FRAY_DIR)
       if (fm.status && !STATUS.includes(fm.status))
         errors.push(`invalid status "${fm.status}" (expected one of: ${STATUS.join(', ')})`);
     }
-    return { id, title: fm?.title ?? '', status: fm?.status ?? '?', next: nextStep(src), text: src, errors };
+    const dependsOn = parseList(fm?.depends_on);
+    return { id, title: fm?.title ?? '', status: fm?.status ?? '?', next: nextStep(src), dependsOn, text: src, errors };
   });
+
+// `depends_on` references other THREAD SLUGS — validate they resolve. A dangling
+// slug (no matching `.fray/<slug>.md`) is a warning, surfaced like any frontmatter
+// error so the orchestrator notices the stale dependency. Everything is COMPUTED
+// from the scanned set; there is no external registry to consult.
+const slugs = new Set(threads.map((t) => t.id));
+const statusOf = new Map(threads.map((t) => [t.id, t.status]));
+for (const t of threads) {
+  for (const dep of t.dependsOn) {
+    if (!slugs.has(dep)) t.errors.push(`depends_on references unknown thread "${dep}"`);
+  }
+}
+
+/**
+ * A thread's blockers: the subset of its `depends_on` targets not yet terminal.
+ * Empty ⇒ all dependencies clear. Unknown slugs are skipped here (already an error).
+ * @param {{ dependsOn: string[] }} t
+ * @returns {string[]}
+ */
+function blockers(t) {
+  return t.dependsOn.filter((dep) => slugs.has(dep) && !TERMINAL.includes(statusOf.get(dep) ?? '?'));
+}
 
 const allErrors = threads.filter((t) => t.errors.length).map((t) => `  ${t.id}.md: ${t.errors.join('; ')}`);
 
-if (process.argv.includes('--validate')) {
+if (process.argv.includes('--validate') || process.argv.includes('--check')) {
   if (allErrors.length) {
     console.error(`fray frontmatter validation FAILED:\n${allErrors.join('\n')}`);
     process.exit(1);
@@ -95,7 +142,11 @@ if (process.argv.includes('--validate')) {
 }
 
 if (process.argv.includes('--json')) {
-  console.log(JSON.stringify({ config: cfg, threads: threads.map(({ text, ...t }) => t), errors: allErrors }, null, 2));
+  const dump = threads.map(({ text, ...t }) => {
+    const b = blockers(t);
+    return { ...t, blockers: b, ready: t.dependsOn.length > 0 && b.length === 0 };
+  });
+  console.log(JSON.stringify({ config: cfg, threads: dump, errors: allErrors }, null, 2));
   process.exit(0);
 }
 
@@ -126,7 +177,15 @@ for (const s of only ? [only] : STATUS) {
   const group = threads.filter((t) => t.status === s);
   if (!group.length) continue;
   out.push(`\n## ${s} (${group.length})`);
-  for (const t of group) out.push(`- ${t.id} — ${t.title}\n    → ${t.next}`);
+  for (const t of group) {
+    out.push(`- ${t.id} — ${t.title}\n    → ${t.next}`);
+    if (t.dependsOn.length) {
+      const b = blockers(t);
+      out.push(b.length
+        ? `    ⏳ blocked on: ${b.join(', ')}`
+        : `    ▶ READY — dependencies clear, dispatch now`);
+    }
+  }
 }
 const unknown = threads.filter((t) => !STATUS.includes(t.status));
 if (unknown.length) out.push(`\n## (invalid status) (${unknown.length})\n${unknown.map((t) => `- ${t.id} [${t.status}]`).join('\n')}`);
