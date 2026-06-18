@@ -604,7 +604,7 @@ const { host, port } = config        // destructure fields`}
   );
 }
 
-/* Modern web-platform + TC39 globals — "browser APIs on the server". */
+/* Modern web-platform + TC39 APIs and syntax. */
 const APIS: { name: string; label: string }[] = [
   { name: 'Web Workers', label: 'Auto-polyfilled' },
   { name: 'Temporal', label: 'Polyfilled < 26' },
@@ -612,7 +612,7 @@ const APIS: { name: string; label: string }[] = [
   { name: 'WebSocket', label: 'Unflagged < 22' },
   { name: 'navigator.locks', label: 'Auto-polyfilled' },
   { name: 'localStorage', label: 'Auto-unflagged' },
-  { name: 'EventSource', label: 'Auto-unflagged' },
+  { name: 'using / await using', label: 'Transpiled' },
   { name: 'node:sqlite', label: 'Unflagged < 23' },
   { name: 'vm.Module', label: 'Auto-unflagged' },
   { name: 'RegExp.escape', label: 'Polyfilled < 24' },
