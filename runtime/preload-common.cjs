@@ -159,6 +159,66 @@ function installUserHookDetector() {
   try { module_.registerHooks = wrapped; } catch {}
 }
 
+// True once a USER async ESM loader is active — registered via `module.register()`
+// at runtime (the tsx / ts-node/esm pattern, incl. via `--import`). On the FAST tier
+// nub itself NEVER calls `module.register()` (it uses sync `module.registerHooks`),
+// so on that tier any `module.register()` call is the user's. We wrap it to observe
+// runtime registrations; the static CLI-flag forms (`--experimental-loader`/`--loader`
+// /`--import`) are read separately from `process.execArgv` (see userAsyncLoaderActive).
+let __userAsyncLoaderRegistered = false;
+function installUserAsyncLoaderDetector() {
+  if (typeof module_.register !== "function") return;
+  const orig = module_.register;
+  if (orig.__nubAsyncWrapped) return;
+  const wrapped = function (...args) {
+    // On the fast tier nub never calls module.register, so every call here is the
+    // user's. (registerLoaderWorker — nub's only register caller — is the compat /
+    // require(esm)-off path, which does not run the fast-tier sync load hook that
+    // performs the commonjs-sync relabel, so a false positive there is harmless.)
+    __userAsyncLoaderRegistered = true;
+    return orig.apply(this, args);
+  };
+  wrapped.__nubAsyncWrapped = true;
+  try { module_.register = wrapped; } catch {}
+}
+
+// Did the process start with a CLI flag that registers a user async ESM loader?
+// `--experimental-loader` / `--loader` register a loader directly; `--import` runs a
+// module that commonly calls `module.register()` (tsx, ts-node/esm). Read once from
+// `process.execArgv` — these flags appear before any user code runs, so this is a
+// reliable preload-time signal. Conservative on `--import`: a `--import` that does NOT
+// register a loader is harmless to relabel, but presence of the flag declines the
+// optimization rather than risk interop breakage (correctness over coverage).
+let __cliAsyncLoaderCache;
+function cliAsyncLoaderPresent() {
+  if (__cliAsyncLoaderCache !== undefined) return __cliAsyncLoaderCache;
+  let present = false;
+  try {
+    const argv = process.execArgv;
+    if (Array.isArray(argv)) {
+      for (const a of argv) {
+        if (typeof a !== "string") continue;
+        if (
+          a === "--loader" || a.startsWith("--loader=") ||
+          a === "--experimental-loader" || a.startsWith("--experimental-loader=") ||
+          a === "--import" || a.startsWith("--import=")
+        ) { present = true; break; }
+      }
+    }
+  } catch { /* execArgv unavailable — treat as no loader */ }
+  __cliAsyncLoaderCache = present;
+  return present;
+}
+
+// The guard for the `commonjs-sync` relabel: is a USER async ESM loader active on the
+// import-of-CJS path? Relabel ONLY when nub is the sole loader (the common case —
+// next build/dev) so we never route a user loader's inner require()s through its own
+// ESM resolve hook (the interop break documented at the load hook below). Either a CLI
+// loader flag OR a runtime module.register() disqualifies the optimization.
+function userAsyncLoaderActive() {
+  return __userAsyncLoaderRegistered || cliAsyncLoaderPresent();
+}
+
 // ── Internal `module.register()` without the DEP0205 leak ────────────
 // `module.register()` is the loader-WORKER registration surface (async ESM hooks in
 // a dedicated thread). nub uses it for the compat tier (18.19–22.14, where the sync
@@ -199,6 +259,7 @@ function registerLoaderWorker(specifier, parentURL, options) {
 
 function makeHooks(core, watchReporting) {
   installUserHookDetector();
+  installUserAsyncLoaderDetector();
 
   function resolve(specifier, context, nextResolve) {
     const r = core.resolveSpec(specifier, context.parentURL);
@@ -294,6 +355,49 @@ function makeHooks(core, watchReporting) {
     }
 
     const r = nextLoad(url, context);
+
+    // #18 — relabel a `commonjs` result as `commonjs-sync` for `file:` URLs ON THE
+    // `import()`-OF-CJS PATH so the module (and its inner require()s) routes through
+    // Node's SOUND synchronous CJS translator (loadCJSModuleWithModuleLoad), which
+    // builds a real CJS `require` with `.cache`/`.extensions`. Without this, nub's
+    // sync load hook makes Node pick loadCJSModuleWithSpecialRequire — a hand-rolled
+    // `require` missing `.cache`/`.extensions` — so CJS that does `require.cache[...]`
+    // (next's bundled `conf`) crashes with "Cannot convert undefined or null to
+    // object". Version-banded in Node: broken 22.15–~25, fixed in 26 via the
+    // special-require repair (#60380); the relabel is a no-op on 26.
+    //
+    // Two narrowing guards make this surgical — relabel ONLY the path that actually
+    // hits the broken translator, so nothing else moves:
+    //
+    //  (1) IMPORT PATH ONLY. The bad special-require is chosen only when CJS is
+    //      reached via dynamic `import()`. On the broken band Node passes that load
+    //      step `context.conditions` as an ARRAY containing "import"; a plain
+    //      `require()` of the same file passes an empty-object `conditions` (no
+    //      "import"). Gating on the "import" condition leaves `require()` loads
+    //      untouched — without this, relabeling a `require()`-loaded `.cjs` that
+    //      contains ESM syntax makes Node's sync translator accept it instead of
+    //      throwing "Unexpected token 'export'" (a real regression: it swallows the
+    //      syntax error vanilla Node raises). On Node 26 the require path also carries
+    //      an array but without "import", and the relabel is a no-op there regardless.
+    //
+    //  (2) NO USER LOADER/HOOK. Skip whenever a USER async ESM loader OR a USER sync
+    //      `module.registerHooks` hook is active. Relabeling makes Node treat the
+    //      module as ESM-translatable, re-routing inner resolution through the user's
+    //      hook chain — which changes resolve-hook call shape/count (the
+    //      module-hooks resolve-import-cjs contract) and breaks async-loader interop
+    //      (the source-backfill EXCEPTION block below documents the same hazard). When
+    //      nub is the SOLE loader (the next-build/dev common case) the path is nub's
+    //      own, so the relabel is safe; otherwise leave the native-CJS handoff intact.
+    if (
+      r && r.format === "commonjs" &&
+      typeof url === "string" && url.startsWith("file:") &&
+      Array.isArray(context && context.conditions) &&
+      context.conditions.includes("import") &&
+      !__userHooksRegistered && !userAsyncLoaderActive()
+    ) {
+      return { ...r, format: "commonjs-sync" };
+    }
+
     // nub's sync `module.registerHooks` load hook forces the synchronous
     // module-job (ModuleJobSync.syncLink -> loadAndTranslateForImportInRequiredESM),
     // which cannot async-fetch source. When a user `--experimental-loader` resolve
@@ -314,9 +418,13 @@ function makeHooks(core, watchReporting) {
     // the user's resolve hook and crash with ERR_INVALID_RETURN_PROPERTY_VALUE (the
     // shadow-realm/custom-loaders corpus failure). Only ESM-shaped formats ('module',
     // 'json', 'wasm', …) genuinely need the source on the sync path.
+    // ('commonjs-sync' is excluded for the same reason as 'commonjs' — it's the
+    // sync CJS handoff the #18 relabel above produces; backfilling its source would
+    // re-route inner require()s through the ESM wrapper. The relabel block early-
+    // returns, so this is defense-in-depth against a future refactor.)
     if (
       r && r.source == null && r.format &&
-      r.format !== "commonjs" && r.format !== "builtin" &&
+      r.format !== "commonjs" && r.format !== "commonjs-sync" && r.format !== "builtin" &&
       typeof url === "string" && url.startsWith("file:")
     ) {
       try {
