@@ -9,7 +9,8 @@ const config = {
   // descriptive URLs working.
   async redirects() {
     return [
-      { source: '/docs/running-files', destination: '/docs/files', permanent: true },
+      { source: '/docs/running-files', destination: '/docs/runtime', permanent: true },
+      { source: '/docs/files', destination: '/docs/runtime', permanent: true },
       { source: '/docs/running-scripts', destination: '/docs/run', permanent: true },
       { source: '/docs/managing-node', destination: '/docs/node', permanent: true },
     ];

@@ -143,7 +143,7 @@ Yes — `nubx` (also available as `nub exec`) is the equivalent, following the s
 
 ## Does it replace `tsx` / `ts-node`?
 
-Yes — `nub script.ts` runs TypeScript directly, with the full TS surface (not just type stripping), respecting your `tsconfig.json`, with inline source maps so stack traces point at your `.ts` source. Full details: [File runner → TypeScript](/docs/runtime#typescript).
+Yes — `nub script.ts` runs TypeScript directly, with the full TS surface (not just type stripping), respecting your `tsconfig.json`, with inline source maps so stack traces point at your `.ts` source. Full details: [Runtime → TypeScript](/docs/runtime/typescript).
 
 ## Why not just use Node's built-in TypeScript support?
 
@@ -177,7 +177,7 @@ Expansion of `${VAR}` and `$VAR` is supported, including nested references and c
 Under `NODE_ENV=test`, `.env.local` is skipped, following the Next.js convention — local secrets shouldn't leak into your test suite.
 </Callout>
 
-Full details: [File runner → Environment variables](/docs/runtime#environment-variables).
+Full details: [Runtime → Environment variables](/docs/runtime/env).
 
 ## How does it work under the hood?
 
