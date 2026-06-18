@@ -22,7 +22,7 @@ The CLI you type is pnpm-shaped; the files Nub reads and writes are npm's. When 
     // ── Workspaces ────────────────────────────────────────────────────
     { feature: <><code>workspaces</code></>, status: 'yes' },
     { feature: <>workspace ranges</>, status: 'yes' },
-    { feature: <>workspace selectors</>, status: 'yes' },
+    { feature: <>workspace selectors</>, status: 'partial', note: 'No git-since ([ref]) selector.' },
     // ── Config files ──────────────────────────────────────────────────
     { feature: <>project + user <code>.npmrc</code></>, status: 'yes' },
     { feature: <>global + builtin <code>.npmrc</code></>, status: 'yes' },
@@ -30,15 +30,8 @@ The CLI you type is pnpm-shaped; the files Nub reads and writes are npm's. When 
     { feature: <><code>npm_config_*</code></>, status: 'yes' },
     { feature: <><code>NPM_CONFIG_*</code> / <code>NPM_TOKEN</code></>, status: 'yes' },
     // ── Lockfiles ─────────────────────────────────────────────────────
-    { feature: <><code>package-lock.json</code> v3</>, status: 'yes' },
-    { feature: <><code>package-lock.json</code> v2</>, status: 'yes' },
+    { feature: <><code>package-lock.json</code> v2 / v3</>, status: 'yes', note: 'lockfileVersion 1 refused — re-lock under npm 7+.' },
     { feature: <><code>npm-shrinkwrap.json</code></>, status: 'yes' },
-    { feature: <>lockfileVersion 1</>, status: 'no', note: 'npm 5–6 format. Re-lock under npm 7+ first; a v1 lockfile is refused rather than misread.' },
-    { feature: <>pnpm / Bun lockfile round-trip</>, status: 'yes' },
-    // ── Install behavior ──────────────────────────────────────────────
-    { feature: <>hoisted <code>node_modules</code></>, status: 'yes' },
-    { feature: <>lifecycle build scripts</>, status: 'yes' },
-    { feature: <>content-addressed store</>, status: 'yes' },
   ]}
 />
 

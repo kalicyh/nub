@@ -37,32 +37,27 @@ Nub mirrors pnpm most closely: the CLI surface, the isolated `node_modules` layo
     { feature: <><code>dependencies</code> / <code>devDependencies</code></>, status: 'yes' },
     { feature: <><code>optionalDependencies</code></>, status: 'yes' },
     { feature: <><code>peerDependencies</code> / <code>peerDependenciesMeta</code></>, status: 'yes' },
+    { feature: <><code>dependenciesMeta.injected</code></>, status: 'partial', note: 'Not honored under Nub-identity migration.' },
     { feature: <><code>pnpm.overrides</code></>, status: 'yes' },
     { feature: <><code>resolutions</code></>, status: 'yes' },
     { feature: <code>overrides</code>, status: 'yes' },
     { feature: <><code>onlyBuiltDependencies</code> / <code>neverBuiltDependencies</code></>, status: 'yes' },
     { feature: <><code>packageManager</code> / <code>engines</code></>, status: 'yes' },
-    { feature: <><code>scripts</code> + lifecycle</>, status: 'yes' },
     // ── Workspaces ────────────────────────────────────────────────────
     { feature: <><code>workspaces</code> / <code>pnpm-workspace.yaml</code></>, status: 'yes' },
     { feature: <><code>catalog:</code> / <code>catalogs:</code></>, status: 'yes' },
     { feature: <><code>workspace:</code> protocol</>, status: 'yes' },
-    { feature: <>workspace selectors</>, status: 'yes' },
+    { feature: <>workspace selectors</>, status: 'partial', note: 'No git-since ([ref]) selector.' },
     // ── Config files ──────────────────────────────────────────────────
     { feature: <code>.npmrc</code>, status: 'yes' },
     { feature: <><code>.pnpmfile.cjs</code> / <code>.pnpmfile.mjs</code></>, status: 'yes' },
     // ── Environment variables ─────────────────────────────────────────
     { feature: <><code>npm_config_*</code></>, status: 'yes' },
-    { feature: <><code>pnpm_config_*</code> / <code>PNPM_CONFIG_*</code></>, status: 'yes' },
+    { feature: <><code>pnpm_config_*</code></>, status: 'yes' },
     // ── Lockfiles ─────────────────────────────────────────────────────
-    { feature: <><code>pnpm-lock.yaml</code> v9</>, status: 'yes' },
-    { feature: <>older lockfile versions</>, status: 'yes', note: 'Nub targets v9; v6 (pnpm 8) and v5.4 (pnpm 7) are declined cleanly. Re-lock under pnpm 9+ first.' },
-    { feature: <>npm / Bun lockfile round-trip</>, status: 'yes' },
+    { feature: <><code>pnpm-lock.yaml</code> v9</>, status: 'yes', note: 'v6/v5.4 declined — re-lock under pnpm 9+.' },
     // ── Linking / hoisting ────────────────────────────────────────────
-    { feature: <code>nodeLinker: isolated</code>, status: 'yes' },
-    { feature: <code>nodeLinker: hoisted</code>, status: 'yes' },
-    { feature: <code>nodeLinker: pnp</code>, status: 'no', note: 'Nub emits a hoisted or isolated node_modules; a node-linker=pnp request errors rather than downgrading silently.' },
-    { feature: <>content-addressed store</>, status: 'yes' },
+    { feature: <code>nodeLinker</code>, status: 'partial', note: 'No PnP.' },
   ]}
 />
 

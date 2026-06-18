@@ -33,29 +33,25 @@ Both formats are read:
     { feature: <code>dependenciesMeta.*.built</code>, status: 'yes' },
     { feature: <code>packageExtensions</code>, status: 'yes' },
     { feature: <code>packageManager</code>, status: 'yes' },
-    { feature: <><code>scripts</code> + lifecycle</>, status: 'yes' },
     // ── Protocol specifiers ───────────────────────────────────────────
     { feature: <><code>workspace:</code> protocol</>, status: 'yes' },
     { feature: <><code>npm:</code> alias</>, status: 'yes' },
     { feature: <><code>portal:</code> / <code>patch:</code></>, status: 'yes' },
     // ── Workspaces ────────────────────────────────────────────────────
     { feature: <><code>workspaces</code></>, status: 'yes' },
-    { feature: <>workspace selectors</>, status: 'yes' },
+    { feature: <>workspace selectors</>, status: 'partial', note: 'No git-since ([ref]) selector.' },
     // ── Config files ──────────────────────────────────────────────────
     { feature: <code>.npmrc</code>, status: 'yes' },
-    { feature: <code>.yarnrc.yml</code>, status: 'yes' },
-    { feature: <code>.yarnrc</code>, status: 'yes' },
+    { feature: <code>.yarnrc.yml</code>, status: 'partial', note: 'Not read: supportedArchitectures, npmAlwaysAuth, file-path TLS cert/key, per-host proxies, PnP.' },
+    { feature: <code>.yarnrc</code>, status: 'partial', note: 'Registry and auth keys only.' },
     // ── Environment variables ─────────────────────────────────────────
     { feature: <><code>npm_config_*</code></>, status: 'yes' },
-    { feature: <><code>YARN_*</code> config env</>, status: 'yes' },
+    { feature: <><code>YARN_*</code></>, status: 'partial', note: 'Top-level scalar settings only; map-shaped settings not read.' },
     // ── Lockfiles ─────────────────────────────────────────────────────
-    { feature: <><code>yarn.lock</code></>, status: 'yes' },
-    { feature: <>npm / Bun lockfile round-trip</>, status: 'yes' },
+    { feature: <><code>yarn.lock</code></>, status: 'partial', note: 'Read-only; writes refused.' },
     // ── Linking / install behavior ────────────────────────────────────
-    { feature: <code>nodeLinker: node-modules</code>, status: 'yes' },
-    { feature: <code>nodeLinker: pnpm</code>, status: 'yes' },
-    { feature: <code>nodeLinker: pnp</code>, status: 'no', note: 'Nub cannot produce a Plug-n-Play install; it warns and links a node_modules tree instead. A PnP project already installed by Yarn still runs under Nub.' },
-    { feature: <code>supportedArchitectures</code>, status: 'yes' },
+    { feature: <code>nodeLinker</code>, status: 'partial', note: 'No PnP.' },
+    { feature: <code>supportedArchitectures</code>, status: 'no', note: 'Not read.' },
   ]}
 />
 

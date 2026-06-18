@@ -17,7 +17,11 @@ Nub never asks which package manager you use — it [infers the incumbent](#pack
 The installer is optional. Keep running `npm`, `pnpm`, `yarn`, or `bun` exactly as you do today, and reach for Nub for everything else — running files, scripts, and binaries.
 </Callout>
 
-## `nub install`
+## CLI
+
+The install engine is one CLI — pnpm's verbs and flags, driven by Nub.
+
+### `nub install`
 
 Resolves the graph and links `node_modules`. The verb, aliases, and flags follow pnpm:
 
@@ -56,7 +60,7 @@ In a workspace, `install` and `ci` accept the same selector flags as script runn
 --fail-if-no-match        # error if the filter selects zero packages
 ```
 
-## `nub add`
+### `nub add`
 
 Resolves a package, links it, and writes the dependency into `package.json`:
 
@@ -73,7 +77,7 @@ nub add --allow-build=<pkg>    # pre-approve its build scripts for this install
 nub add --no-save <pkg>        # link without persisting to package.json
 ```
 
-## `nub remove`
+### `nub remove`
 
 Drops a dependency from `package.json` and relinks `node_modules`:
 
@@ -84,7 +88,7 @@ nub remove -g <pkg>        # remove a global package
 nub remove -w <pkg>        # remove from the workspace root
 ```
 
-## `nub update`
+### `nub update`
 
 Re-resolves dependencies within their ranges; `--latest` rewrites the `package.json` ranges to the newest resolved versions:
 
@@ -98,7 +102,7 @@ nub update -P              # production only
 nub update --lockfile-only # refresh the lockfile, leave node_modules alone
 ```
 
-## `nub dedupe`
+### `nub dedupe`
 
 Collapses duplicate versions in the lockfile to fewer, shared resolutions:
 
@@ -107,7 +111,7 @@ nub dedupe          # rewrite the lockfile with deduped resolutions
 nub dedupe --check  # CI: exit non-zero if dedupe would change anything
 ```
 
-## `nub import`
+### `nub import`
 
 Converts another package manager's lockfile to Nub's `pnpm-lock.yaml`, without installing:
 
@@ -128,7 +132,7 @@ store        config        pkg
 publish      pack          dlx          create
 ```
 
-## `nub pm`
+### `nub pm`
 
 The install engine is distinct from `nub pm`, the [package meta-manager](/docs/pm), which provisions and runs the exact pnpm/npm/yarn your project *pins* (corepack's job).
 
@@ -150,33 +154,33 @@ What Nub reads and writes keys off the project's incumbent package manager — i
         {
           code: 'package-lock.json',
           ok: true,
-          note: 'Read and written in npm-incumbent projects, in lockfileVersion 2/3 format. A lockfileVersion 1 file errors — re-run npm to upgrade it to v2/v3 first.',
+          note: 'lockfileVersion 1 errors — re-lock under npm 7+ first.',
         },
-        { code: 'npm-shrinkwrap.json', ok: true, note: 'Published-lockfile variant, read and written like package-lock.json.' },
-        { code: '.npmrc', ok: true, note: 'Full project + user + global + builtin cascade: registry, scoped registries, auth tokens, cafile / ca / strict-ssl, and proxies.' },
-        { code: 'overrides', ok: true, note: 'npm honors top-level overrides; resolutions is ignored (use overrides).' },
+        { code: 'npm-shrinkwrap.json', ok: true },
+        { code: '.npmrc', ok: true },
+        { code: 'overrides', ok: true },
         { code: 'workspaces', ok: true },
         { code: 'engines / os / cpu / libc', ok: true },
-        { code: 'npm_config_*', ok: true, note: 'Registry-client keys only: registry, scoped @org:registry, per-URI auth, proxy / no-proxy, strict-ssl. Both npm_config_ and NPM_CONFIG_ casings.' },
+        { code: 'npm_config_*', ok: true, note: 'Registry-client keys only.' },
       ],
     },
     {
       pm: 'pnpm',
       href: '/docs/install/pnpm',
       items: [
-        { code: 'pnpm-lock.yaml', ok: true, note: 'Read and written in pnpm-incumbent projects, in pnpm’s native v9 format.' },
+        { code: 'pnpm-lock.yaml', ok: true, note: 'v6/v5.4 declined — re-lock under pnpm 9+.' },
         { code: 'pnpm-workspace.yaml', ok: true },
         { code: '.pnpmfile.cjs', ok: true },
         { code: '.npmrc', ok: true },
-        { code: 'package.json#pnpm', ok: true, note: 'pnpm.overrides and pnpm’s build-script allowlist (onlyBuiltDependencies / allowBuilds), honored only under a pnpm incumbent.' },
+        { code: 'package.json#pnpm', ok: true },
         { code: 'resolutions', ok: true },
         { code: 'catalog:', ok: true },
         { code: 'workspace:', ok: true },
         { code: 'workspaces', ok: true },
-        { code: 'dependenciesMeta.injected', ok: false, note: 'The injected-dependency hard-link layout is out of scope; Nub links the standard isolated tree.' },
-        { code: 'nodeLinker: pnp', ok: false, note: 'PnP install generation is out of scope.' },
+        { code: 'dependenciesMeta.injected', ok: true, partial: true, note: 'Not honored under Nub-identity migration.' },
+        { code: 'nodeLinker', ok: true, partial: true, note: 'No PnP — node-linker=pnp errors.' },
         { code: 'engines / os / cpu', ok: true },
-        { code: 'pnpm_config_*', ok: true, note: 'Registry-client keys (registry, per-URI auth, proxy, strict-ssl). Generic pnpm settings resolve through their own env aliases.' },
+        { code: 'pnpm_config_*', ok: true, note: 'Registry-client keys only.' },
         { code: 'npm_config_*', ok: true },
       ],
     },
@@ -189,25 +193,25 @@ What Nub reads and writes keys off the project's incumbent package manager — i
           code: 'yarn.lock',
           ok: true,
           partial: true,
-          note: 'Read-only: Classic (v1) and Berry (v2+) lockfiles are read to install and run. Any command that would rewrite yarn.lock (add, remove, update) refuses before touching the engine — keep using yarn to change the graph.',
+          note: 'Read-only; writes refused.',
         },
         {
           code: '.yarnrc.yml',
           ok: true,
           partial: true,
-          note: 'Read in Yarn-incumbent projects: registry, scoped and registry-keyed auth, CA file path, http/https proxy, strict-SSL, node-modules/pnpm linker, packageExtensions. Not read: supportedArchitectures, npmAlwaysAuth, file-path TLS client cert/key, per-host networkSettings proxy, nodeLinker pnp.',
+          note: 'Not read: supportedArchitectures, npmAlwaysAuth, file-path TLS cert/key, per-host proxies, PnP.',
         },
         {
           code: '.yarnrc',
           ok: true,
           partial: true,
-          note: 'Classic Yarn 1, Yarn-incumbent projects only: default registry, scoped registries, registry-keyed and top-level auth (_authToken / _auth). Every other classic key (network-timeout, save-prefix, offline mirror, --flag lines) is ignored.',
+          note: 'Registry and auth keys only.',
         },
         {
           code: 'YARN_*',
           ok: true,
           partial: true,
-          note: 'Top-level scalar settings only: registry, auth token/ident, node-linker, CA file path, http/https proxy, strict-SSL. Map-shaped settings (npmScopes, npmRegistries) have no env spelling in Yarn and are not read.',
+          note: 'Top-level scalar settings only; map-shaped settings not read.',
         },
         { code: '.npmrc', ok: true },
         { code: 'resolutions', ok: true },
@@ -215,7 +219,7 @@ What Nub reads and writes keys off the project's incumbent package manager — i
         { code: 'workspaces', ok: true },
         { code: 'packageExtensions', ok: true },
         { code: 'dependenciesMeta.built', ok: true },
-        { code: 'nodeLinker: pnp', ok: false, note: 'PnP install generation is out of scope.' },
+        { code: 'nodeLinker', ok: true, partial: true, note: 'No PnP — warns and links node_modules instead.' },
         { code: 'engines / os / cpu', ok: true },
       ],
     },
@@ -223,15 +227,15 @@ What Nub reads and writes keys off the project's incumbent package manager — i
       pm: 'Bun',
       href: '/docs/install/bun',
       items: [
-        { code: 'bun.lock', ok: true, note: 'Bun’s text lockfile, read and round-tripped byte-for-byte in Bun-incumbent projects.' },
-        { code: 'bun.lockb', ok: false, note: 'The binary lockfile is rejected — run bun install --save-text-lockfile (or upgrade to Bun 1.2+) to generate a bun.lock text file first.' },
+        { code: 'bun.lock', ok: true },
+        { code: 'bun.lockb', ok: false, note: 'Binary lockfile rejected — convert to bun.lock text first.' },
         {
           code: 'bunfig.toml',
           ok: true,
           partial: true,
-          note: 'Read in Bun-incumbent projects: [install] registry, scopes, linker, and TLS (cafile path and inline ca PEM). Not read: runtime/test/serve config, the security scanner, cache and global-dir settings, and the wider BUN_CONFIG_* install-behavior family.',
+          note: '[install] section only.',
         },
-        { code: 'trustedDependencies', ok: true, note: 'Bun’s build-script allowlist, mirrored exactly under a Bun incumbent (dropped in Bun 10, matching Bun).' },
+        { code: 'trustedDependencies', ok: true },
         { code: 'overrides', ok: true },
         { code: 'resolutions', ok: true },
         { code: 'patchedDependencies', ok: true },
@@ -242,7 +246,7 @@ What Nub reads and writes keys off the project's incumbent package manager — i
           code: 'BUN_CONFIG_*',
           ok: true,
           partial: true,
-          note: 'Only two of the BUN_CONFIG_* install env vars are read: BUN_CONFIG_REGISTRY (must be an http(s) URL) and BUN_CONFIG_TOKEN. The rest of the BUN_CONFIG_* family is not read.',
+          note: 'Registry and token only.',
         },
         { code: 'engines / os / cpu', ok: true },
       ],
@@ -252,9 +256,9 @@ What Nub reads and writes keys off the project's incumbent package manager — i
       href: '/docs/pm',
       highlight: true,
       items: [
-        { code: 'lock.yaml', ok: true, note: 'nub’s own unbranded canonical lockfile, used when no foreign lockfile and no other PM is declared.' },
+        { code: 'lock.yaml', ok: true },
         { code: '.npmrc', ok: true },
-        { code: 'overrides', ok: true, note: 'A nub-identity project honors only unbranded cross-tool fields — overrides, resolutions, catalog, workspaces — never another PM’s branded config.' },
+        { code: 'overrides', ok: true },
         { code: 'resolutions', ok: true },
         { code: 'patchedDependencies', ok: true },
         { code: 'catalog:', ok: true },
