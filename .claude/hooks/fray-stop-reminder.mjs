@@ -168,7 +168,13 @@ async function main() {
   // Fire only on rests NEWER than the last surface, so each new rest forces exactly
   // one reconciliation prompt (loop-safe with Guard 1).
   const newRests = restsSince(last_rest_surfaced);
-  if (newRests > 0) {
+  // Cooldown: don't re-block on EVERY rest — under multi-session work the rest log
+  // fills with OTHER sessions' subagent stops, which would otherwise block our idle
+  // every couple minutes. A real completion of OUR agent re-invokes us via its
+  // task-notification regardless of this hook, so a 10-min cooldown is safe: it still
+  // catches a genuinely-new rest after a gap, without the constant cross-session churn.
+  const REST_COOLDOWN_MS = 600_000;
+  if (newRests > 0 && (last_rest_surfaced === 0 || now - last_rest_surfaced > REST_COOLDOWN_MS)) {
     writeState({ last_rest_surfaced: now, last_fired: now });
     process.stdout.write(JSON.stringify({ decision: 'block', reason: restReminder(newRests) }));
     process.exit(0);
