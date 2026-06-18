@@ -3,8 +3,8 @@
 # Run this when you change a fixture's package.json.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-FIXTURE_DIR="$REPO_ROOT/tests/bench/fixtures"
+REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+FIXTURE_DIR="$REPO_ROOT/tests/bench/install/fixtures"
 
 echo "=== Regenerating simple fixture lockfile ==="
 (

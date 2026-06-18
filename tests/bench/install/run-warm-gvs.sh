@@ -20,7 +20,7 @@
 # The auto-disable path is exercised with `next`, not vite.
 #
 # Teardown (wiping node_modules) is via rename-aside in hyperfine --prepare and
-# is EXCLUDED from timing — see tests/bench/README.md for the full methodology.
+# is EXCLUDED from timing — see tests/bench/install/README.md for the full methodology.
 #
 # GVS state is pinned via the CI env var (env -u CI → on; CI=1 → off) so an
 # ambient CI var can't silently flip nub between code paths. We measure at
@@ -30,12 +30,12 @@
 # target/release/nub built.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 NUB="${NUB:-$REPO_ROOT/target/release/nub}"
 # Resolve NUB to an absolute path — the timed install commands run with --cwd set
 # to a fixture dir, so a relative NUB= override must still resolve.
 case "$NUB" in /*) ;; *) NUB="$(cd "$(dirname "$NUB")" 2>/dev/null && pwd)/$(basename "$NUB")" ;; esac
-FIXTURE_DIR="$REPO_ROOT/tests/bench/fixtures"
+FIXTURE_DIR="$REPO_ROOT/tests/bench/install/fixtures"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 TRASH_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bench-warm-gvs-trash-$$-XXXXXX")"
@@ -55,7 +55,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 if [[ "$SAVE_RESULTS" -eq 1 ]]; then
-  RESULTS_DIR="$REPO_ROOT/tests/bench/results"
+  RESULTS_DIR="$REPO_ROOT/tests/bench/install/results"
 else
   RESULTS_DIR="$(mktemp -d /tmp/nub-bench-results-XXXXXX)"
 fi

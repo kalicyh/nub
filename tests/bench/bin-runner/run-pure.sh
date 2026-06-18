@@ -14,7 +14,7 @@
 # Requires: hyperfine, pnpm, npm; bun optional; NUB env var or target/release/nub.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 NUB="${NUB:-$REPO_ROOT/target/release/nub}"
 # Resolve NUB to an absolute path: every dispatch runs in a subshell that cd's
 # into the fixture dir, so a relative NUB= must still resolve there.
@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 if [[ "$SAVE_RESULTS" -eq 1 ]]; then
-  RESULTS_DIR="$REPO_ROOT/tests/bench/results"
+  RESULTS_DIR="$REPO_ROOT/tests/bench/bin-runner/results"
 else
   RESULTS_DIR="$(mktemp -d /tmp/nub-bench-results-XXXXXX)"
 fi

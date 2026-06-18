@@ -3,7 +3,7 @@
 # Full process wall-clock, frozen lockfile, warm + cold scenarios.
 #
 # Usage:
-#   bash tests/bench/run.sh [--cold-only | --warm-only] [--materialized]
+#   bash tests/bench/install/run.sh [--cold-only | --warm-only] [--materialized]
 #                           [--fixture <name>]
 #
 #   --warm-only / --cold-only   run just one scenario
@@ -17,15 +17,15 @@
 # full OFFLINE reinstall — the apples-to-apples repeated-checkout number vs
 # pnpm/bun/npm. Teardown is via rename-aside in hyperfine --prepare and is
 # EXCLUDED from timing. nub's GVS state is pinned (not inherited from $CI). See
-# the long comment above run_warm() and tests/bench/README.md for the full
+# the long comment above run_warm() and tests/bench/install/README.md for the full
 # methodology and the teardown-vs-install separation.
 #
 # Requires: hyperfine, pnpm, perl; bun + npm optional; target/release/nub built.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 NUB="$REPO_ROOT/target/release/nub"
-FIXTURE_DIR="$REPO_ROOT/tests/bench/fixtures"
+FIXTURE_DIR="$REPO_ROOT/tests/bench/install/fixtures"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Trash dir for rename-aside teardown. node_modules is mv'd here (fast) and a
@@ -51,7 +51,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 if [[ "$SAVE_RESULTS" -eq 1 ]]; then
-  RESULTS_DIR="$REPO_ROOT/tests/bench/results"
+  RESULTS_DIR="$REPO_ROOT/tests/bench/install/results"
 else
   RESULTS_DIR="$(mktemp -d /tmp/nub-bench-results-XXXXXX)"
 fi

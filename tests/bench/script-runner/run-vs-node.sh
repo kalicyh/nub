@@ -18,13 +18,13 @@
 #                     node startup for the dispatch, node --run does not.
 #
 # This is a canonical checked-in benchmark harness. By default, result JSON is
-# written to a temp directory; pass --save to update tests/bench/results/.
+# written to a temp directory; pass --save to update tests/bench/script-runner/results/.
 #
 # Requires: hyperfine, node (>=22 for `node --run`), npm, pnpm; NUB env var or
 # target/release/nub.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 NUB="${NUB:-$REPO_ROOT/target/release/nub}"
 # Resolve NUB to an absolute path: every run happens in a subshell that cd's into
 # a fixture dir, so a relative NUB= would fail to resolve there.
@@ -58,7 +58,7 @@ done
 case "$FIXTURE_FILTER" in true|node-e|both) ;; *) echo "ERROR: --fixture must be true, node-e, or both" >&2; exit 1 ;; esac
 case "$TOOLS" in core|all) ;; *) echo "ERROR: --tools must be core or all" >&2; exit 1 ;; esac
 if [[ "$SAVE_RESULTS" -eq 1 ]]; then
-  RESULTS_DIR="$REPO_ROOT/tests/bench/results"
+  RESULTS_DIR="$REPO_ROOT/tests/bench/script-runner/results"
 else
   RESULTS_DIR="$(mktemp -d /tmp/nub-bench-results-XXXXXX)"
 fi

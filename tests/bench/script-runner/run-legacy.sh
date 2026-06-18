@@ -2,7 +2,7 @@
 # Script-runner dispatch benchmark: nub run vs pnpm run vs corepack pnpm run
 # Full process wall-clock on a trivial noop script so runner overhead dominates.
 #
-# Usage: bash tests/bench/run-script-runner.sh [--warmup N] [--runs N]
+# Usage: bash tests/bench/script-runner/run-legacy.sh [--warmup N] [--runs N]
 #
 # What it measures: how long it takes each runner to dispatch "node -e ''"
 # — a near-instant script. The *runner* startup is the signal; the script
@@ -15,7 +15,7 @@
 # Requires: hyperfine, pnpm, corepack, target/release/nub (pre-built)
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 NUB="$REPO_ROOT/target/release/nub"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 if [[ "$SAVE_RESULTS" -eq 1 ]]; then
-  RESULTS_DIR="$REPO_ROOT/tests/bench/results"
+  RESULTS_DIR="$REPO_ROOT/tests/bench/script-runner/results"
 else
   RESULTS_DIR="$(mktemp -d /tmp/nub-bench-results-XXXXXX)"
 fi
