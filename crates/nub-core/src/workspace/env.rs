@@ -1,6 +1,6 @@
 //! Eager .env* loading with workspace walk-up and ${VAR} expansion.
-//! Parsing delegated to `dotenvy` (handles multi-line, escapes, export prefix,
-//! inline comments, BOM, etc.).
+//! The parser follows Node's `--env-file` grammar; expansion stays in Nub's
+//! intentional post-parse layer.
 
 use std::collections::HashMap;
 use std::fs;
@@ -122,128 +122,144 @@ pub fn load_env_files(project_root: &Path) -> HashMap<String, String> {
 
 /// Parse a .env file with Node-`--env-file`-compatible semantics.
 ///
-/// Parsing of single-quoted, double-quoted, unquoted, multi-line, `export`-
-/// prefixed, inline-comment, and `\n`-escape values is delegated to `dotenvy`.
-/// The one place dotenvy diverges from Node's `src/node_dotenv.cc` is the
-/// **backtick** quote character: Node treats `` KEY=`...` `` as a third quote
-/// style — verbatim content between the surrounding backticks (no `$`
-/// substitution, no `\n` unescaping, spans newlines until the closing backtick,
-/// trailing inline comment stripped) — whereas dotenvy treats a backtick as an
-/// ordinary value character and leaves it in the string. We pre-scan for
-/// backtick-quoted values and parse those ourselves the Node way, handing every
-/// other line to dotenvy unchanged. Later keys override earlier ones (Node's
-/// `insert_or_assign` / last-writer-wins), preserving first-seen order for the
-/// callers that fold these pairs into a `HashMap`.
+/// Node only treats quotes as syntax when the trimmed value starts with `'`,
+/// `"`, or `` ` ``. Regular unquoted values are otherwise copied up to the
+/// newline or inline `#` comment and then trimmed, so JSON-looking values keep
+/// their inner quotes and backslash escapes. Later keys override earlier ones
+/// (Node's `insert_or_assign` / last-writer-wins), preserving first-seen order
+/// for callers that fold these pairs into a `HashMap`.
 pub fn parse_env(content: &str) -> Vec<(String, String)> {
-    // Normalize CRLF the way Node does before scanning, so a `\r` before a
-    // closing backtick or newline doesn't leak into a value.
-    let content = content.replace("\r\n", "\n").replace('\r', "\n");
+    // Node removes carriage returns before scanning.
+    let content = content.replace('\r', "");
+    let content = content.strip_prefix('\u{feff}').unwrap_or(&content);
+    let mut rest = trim_env_spaces(content);
 
     let mut pairs: Vec<(String, String)> = Vec::new();
-    // Lines that are NOT backtick-quoted values get accumulated and parsed by
-    // dotenvy as a batch, preserving dotenvy's intra-file `${VAR}` substitution.
-    let mut dotenvy_buf = String::new();
-    // Index into `pairs` for each emitted key, so a later duplicate overwrites
-    // the earlier value (last-writer-wins) without disturbing key order.
-    use std::collections::HashMap;
     let mut seen: HashMap<String, usize> = HashMap::new();
 
-    let mut upsert = |pairs: &mut Vec<(String, String)>, key: String, value: String| {
-        if let Some(&idx) = seen.get(&key) {
-            pairs[idx].1 = value;
-        } else {
-            seen.insert(key.clone(), pairs.len());
-            pairs.push((key, value));
+    while !rest.is_empty() {
+        if rest.starts_with('\n') || rest.starts_with('#') {
+            rest = trim_env_spaces(skip_line(rest));
+            continue;
         }
-    };
 
-    #[allow(clippy::type_complexity)]
-    let flush_dotenvy =
-        |buf: &mut String,
-         pairs: &mut Vec<(String, String)>,
-         upsert: &mut dyn FnMut(&mut Vec<(String, String)>, String, String)| {
-            if buf.is_empty() {
-                return;
-            }
-            for (k, v) in dotenvy::from_read_iter(buf.as_bytes()).flatten() {
-                upsert(pairs, k, v);
-            }
-            buf.clear();
+        let Some(equal_or_newline) = rest.find(|c| c == '=' || c == '\n') else {
+            break;
         };
+        if rest.as_bytes()[equal_or_newline] == b'\n' {
+            rest = trim_env_spaces(&rest[equal_or_newline + 1..]);
+            continue;
+        }
 
-    let bytes = content.as_bytes();
-    let mut pos = 0;
-    while pos < bytes.len() {
-        // Slice out the current physical line.
-        let line_end = content[pos..]
-            .find('\n')
-            .map(|n| pos + n)
-            .unwrap_or(content.len());
-        let line = &content[pos..line_end];
+        let mut key = trim_env_spaces(&rest[..equal_or_newline]);
+        rest = &rest[equal_or_newline + 1..];
+        if let Some(stripped) = key.strip_prefix("export ") {
+            key = trim_env_spaces(stripped);
+        }
+        if key.is_empty() {
+            rest = trim_env_spaces(skip_line(rest));
+            continue;
+        }
 
-        // Determine whether this line is `KEY = <backtick-quoted value>`.
-        if let Some((key, val_start_off)) = backtick_value_start(line) {
-            // Backtick-quoted value: search for the closing backtick from here,
-            // possibly across subsequent physical lines (Node spans newlines).
-            let value_abs_start = pos + val_start_off; // index of the opening backtick
-            let search_from = value_abs_start + 1; // first char after opening `
-            if let Some(rel) = content[search_from..].find('`') {
-                let closing = search_from + rel;
-                let value = content[search_from..closing].to_string();
-                // Flush any pending non-backtick lines BEFORE emitting this key,
-                // so ordering and last-writer-wins stay correct.
-                flush_dotenvy(&mut dotenvy_buf, &mut pairs, &mut upsert);
-                upsert(&mut pairs, key, value);
-                // Advance past the closing backtick to the end of its physical
-                // line (Node drops the rest of that line, e.g. ` # comment`).
-                let after_close = closing + 1;
-                let next_nl = content[after_close..]
-                    .find('\n')
-                    .map(|n| after_close + n + 1)
-                    .unwrap_or(content.len());
-                pos = next_nl;
+        if rest.is_empty() || rest.starts_with('\n') {
+            upsert_env_pair(&mut pairs, &mut seen, key.to_string(), String::new());
+            rest = match rest.find('\n') {
+                Some(newline) => trim_env_spaces(&rest[newline + 1..]),
+                None => "",
+            };
+            continue;
+        }
+
+        rest = trim_env_spaces(rest);
+        if rest.is_empty() {
+            upsert_env_pair(&mut pairs, &mut seen, key.to_string(), String::new());
+            break;
+        }
+
+        if rest.starts_with('"') {
+            if let Some(closing_quote) = closing_quote(rest, '"') {
+                let value = rest[1..closing_quote].replace("\\n", "\n");
+                upsert_env_pair(&mut pairs, &mut seen, key.to_string(), value);
+                rest = trim_env_spaces(after_value_line(rest, closing_quote + 1));
                 continue;
             }
-            // Unterminated backtick: Node falls back to taking the rest of the
-            // line verbatim (no closing quote found within the file). Defer to
-            // dotenvy's own unterminated handling by buffering the line as-is.
         }
 
-        // Ordinary line: buffer it for dotenvy.
-        dotenvy_buf.push_str(line);
-        dotenvy_buf.push('\n');
-        pos = line_end + 1;
+        if let Some(quote) = leading_quote(rest) {
+            if let Some(closing_quote) = closing_quote(rest, quote) {
+                let value = rest[1..closing_quote].to_string();
+                upsert_env_pair(&mut pairs, &mut seen, key.to_string(), value);
+                rest = trim_env_spaces(after_value_line(rest, closing_quote + 1));
+                continue;
+            }
+
+            let (line, next) = split_line(rest);
+            upsert_env_pair(&mut pairs, &mut seen, key.to_string(), line.to_string());
+            rest = trim_env_spaces(next);
+            continue;
+        }
+
+        let (line, next) = split_line(rest);
+        let value = line.split_once('#').map(|(value, _)| value).unwrap_or(line);
+        upsert_env_pair(
+            &mut pairs,
+            &mut seen,
+            key.to_string(),
+            trim_env_spaces(value).to_string(),
+        );
+        rest = trim_env_spaces(next);
     }
-    flush_dotenvy(&mut dotenvy_buf, &mut pairs, &mut upsert);
 
     pairs
 }
 
-/// If `line` is of the form `KEY =` followed (after optional whitespace) by an
-/// opening backtick, return `(key, offset-of-opening-backtick-within-line)`.
-/// Mirrors Node's key handling: leading whitespace and an `export ` prefix are
-/// stripped, the key is trimmed, and the value side is left-trimmed before the
-/// backtick check. Returns `None` for any non-backtick or malformed line.
-fn backtick_value_start(line: &str) -> Option<(String, usize)> {
-    let eq = line.find('=')?;
-    let raw_key = &line[..eq];
-    let key_trimmed = raw_key.trim();
-    let key_trimmed = key_trimmed
-        .strip_prefix("export ")
-        .unwrap_or(key_trimmed)
-        .trim();
-    if key_trimmed.is_empty() {
-        return None;
+fn trim_env_spaces(input: &str) -> &str {
+    input.trim_matches(|c| matches!(c, ' ' | '\t' | '\n'))
+}
+
+fn skip_line(input: &str) -> &str {
+    split_line(input).1
+}
+
+fn split_line(input: &str) -> (&str, &str) {
+    match input.find('\n') {
+        Some(newline) => (&input[..newline], &input[newline + 1..]),
+        None => (input, ""),
     }
-    // Left-trim the value side; the opening backtick must be the first non-space.
-    let after_eq = &line[eq + 1..];
-    let ws_len = after_eq.len() - after_eq.trim_start().len();
-    let val = &after_eq[ws_len..];
-    if !val.starts_with('`') {
-        return None;
+}
+
+fn after_value_line(input: &str, from: usize) -> &str {
+    input[from..]
+        .find('\n')
+        .map(|newline| &input[from + newline + 1..])
+        .unwrap_or("")
+}
+
+fn leading_quote(input: &str) -> Option<char> {
+    match input.as_bytes().first().copied() {
+        Some(b'\'') => Some('\''),
+        Some(b'"') => Some('"'),
+        Some(b'`') => Some('`'),
+        _ => None,
     }
-    let backtick_off = eq + 1 + ws_len;
-    Some((key_trimmed.to_string(), backtick_off))
+}
+
+fn closing_quote(input: &str, quote: char) -> Option<usize> {
+    input[1..].find(quote).map(|idx| idx + 1)
+}
+
+fn upsert_env_pair(
+    pairs: &mut Vec<(String, String)>,
+    seen: &mut HashMap<String, usize>,
+    key: String,
+    value: String,
+) {
+    if let Some(&idx) = seen.get(&key) {
+        pairs[idx].1 = value;
+    } else {
+        seen.insert(key.clone(), pairs.len());
+        pairs.push((key, value));
+    }
 }
 
 /// Expand `${VAR}` and `$VAR` references in a value.
@@ -321,6 +337,16 @@ mod tests {
         let pairs = parse_env("A=\"hello world\"\nB='single'\n");
         assert_eq!(pairs[0].1, "hello world");
         assert_eq!(pairs[1].1, "single");
+    }
+
+    #[test]
+    fn unquoted_json_value_is_verbatim() {
+        let pairs = parse_env("FOO={\"field\":\"line1\\nline2\"}\n");
+        let value = pairs
+            .iter()
+            .find(|(key, _)| key == "FOO")
+            .map(|(_, value)| value.as_str());
+        assert_eq!(value, Some("{\"field\":\"line1\\nline2\"}"));
     }
 
     /// Node's `--env-file` treats backticks as a third quote style alongside

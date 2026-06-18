@@ -2156,6 +2156,64 @@ fn env_loading_direct_file() {
 }
 
 #[test]
+fn auto_dotenv_preserves_unquoted_json_value() {
+    let dir = unique_test_cache();
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("package.json"), r#"{"name":"issue13"}"#).unwrap();
+    std::fs::write(dir.join(".env"), "FOO={\"field\":\"line1\\nline2\"}\n").unwrap();
+    std::fs::write(
+        dir.join("app.js"),
+        "console.log(JSON.stringify(process.env.FOO));\n",
+    )
+    .unwrap();
+
+    let out = Command::new(nub_binary())
+        .arg("app.js")
+        .current_dir(&dir)
+        .env("XDG_CACHE_HOME", dir.join("cache"))
+        .output()
+        .expect("failed to spawn nub");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+    assert_eq!(stdout.trim(), r#""{\"field\":\"line1\\nline2\"}""#);
+}
+
+#[test]
+fn env_file_flag_preserves_unquoted_json_value_without_auto_dotenv() {
+    let dir = unique_test_cache();
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("issue13.env"),
+        "FOO={\"field\":\"line1\\nline2\"}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.js"),
+        "console.log(JSON.stringify(process.env.FOO));\n",
+    )
+    .unwrap();
+
+    let out = Command::new(nub_binary())
+        .arg("--env-file=issue13.env")
+        .arg("app.js")
+        .current_dir(&dir)
+        .env("XDG_CACHE_HOME", dir.join("cache"))
+        .output()
+        .expect("failed to spawn nub");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+    assert_eq!(stdout.trim(), r#""{\"field\":\"line1\\nline2\"}""#);
+}
+
+#[test]
 fn env_precedence_with_node_env() {
     let (stdout, stderr, code) =
         run_nub_with_env("env-test", "precedence.ts", &[("NODE_ENV", "development")]);
