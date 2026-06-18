@@ -1,15 +1,10 @@
 import Link from 'next/link';
-import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { InstallTabs } from '@/components/install-tabs';
 import { MigrationPrompt } from '@/components/migration-prompt';
 import { Terminal, Source, BenchBars } from '@/components/code';
 import { ToolkitTabs } from '@/components/toolkit-tabs';
 import { getLatestNode } from '@/lib/node-version';
-
-export const metadata: Metadata = {
-  title: 'Nub — an all-in-one toolkit for Node.js',
-};
 
 export default function HomePage() {
   return (
