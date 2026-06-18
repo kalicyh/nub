@@ -241,6 +241,81 @@ fn install_with_package_lock_hoists_and_preserves_the_npm_lockfile() {
     );
 }
 
+#[test]
+#[ignore = "network: fetches commander@5.1.0 and commander@12.1.0 from a package-lock v3 workspace"]
+fn ci_with_package_lock_keeps_workspace_local_conflicting_dep() {
+    if !registry_reachable() {
+        eprintln!("skipping: registry.npmjs.org unreachable");
+        return;
+    }
+    let dir = pm_tmpdir("npmlock-workspace-conflict");
+    std::fs::create_dir_all(dir.join("packages/cli")).unwrap();
+    std::fs::write(
+        dir.join("package.json"),
+        r#"{"name":"npm-workspace-conflict","version":"1.0.0","private":true,"packageManager":"npm@11.13.0","workspaces":["packages/*"],"dependencies":{"commander":"^5.0.0"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("packages/cli/package.json"),
+        r#"{"name":"tempo","version":"1.0.0","dependencies":{"commander":"^12.1.0"}}"#,
+    )
+    .unwrap();
+    let package_lock = r#"{
+  "name": "npm-workspace-conflict",
+  "version": "1.0.0",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "npm-workspace-conflict",
+      "version": "1.0.0",
+      "workspaces": ["packages/*"],
+      "dependencies": { "commander": "^5.0.0" }
+    },
+    "node_modules/commander": {
+      "version": "5.1.0",
+      "resolved": "https://registry.npmjs.org/commander/-/commander-5.1.0.tgz",
+      "integrity": "sha512-P0CysNDQ7rtVw4QIQtm+MRxV66vKFSvlsQvGYXZWR3qFU0jlMKHZZZgw8e+8DSah4UDKMqnknRDQz+xuQXQ/Zg==",
+      "license": "MIT",
+      "engines": { "node": ">= 6" }
+    },
+    "node_modules/tempo": {
+      "resolved": "packages/cli",
+      "link": true
+    },
+    "packages/cli": {
+      "name": "tempo",
+      "version": "1.0.0",
+      "dependencies": { "commander": "^12.1.0" }
+    },
+    "packages/cli/node_modules/commander": {
+      "version": "12.1.0",
+      "resolved": "https://registry.npmjs.org/commander/-/commander-12.1.0.tgz",
+      "integrity": "sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA==",
+      "license": "MIT",
+      "engines": { "node": ">=18" }
+    }
+  }
+}
+"#;
+    std::fs::write(dir.join("package-lock.json"), package_lock).unwrap();
+
+    let (stdout, stderr, code) = run_install(&dir, &["ci"]);
+    assert_eq!(code, 0, "stdout: {stdout}\nstderr: {stderr}");
+
+    let root_manifest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("node_modules/commander/package.json")).unwrap(),
+    )
+    .unwrap();
+    let workspace_manifest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("packages/cli/node_modules/commander/package.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(root_manifest["version"].as_str(), Some("5.1.0"));
+    assert_eq!(workspace_manifest["version"].as_str(), Some("12.1.0"));
+}
+
 /// The yarn write gate, both trigger paths — no network either way:
 /// a drifted yarn.lock is refused at pre-flight (before any resolution), and
 /// `--no-frozen-lockfile` (an explicit "rewrite the lockfile" request) is
