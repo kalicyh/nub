@@ -1,0 +1,9 @@
+{
+  "name": "conform-catalog",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Drop-in PM conformance fixture: a pnpm catalog. ms is pinned via 'catalog:' and resolved through the default catalog declared in pnpm-workspace.yaml; pnpm records a catalogs: section in the lockfile that nub must round-trip.",
+  "dependencies": {
+    "ms": "catalog:"
+  }
+}

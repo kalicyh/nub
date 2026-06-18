@@ -36,7 +36,7 @@ NUB="$(cd "$(dirname "$NUB")" && pwd)/$(basename "$NUB")"
 NUB_VERSION="$("$NUB" --version 2>/dev/null || echo '?')"
 
 # Fixture list — each is a subdirectory of fixtures/
-ALL_FIXTURES=(simple peers scoped optional-deps alias file-dep peer-meta deep-graph postinstall overrides-ref patched-deps)
+ALL_FIXTURES=(simple peers scoped optional-deps alias file-dep peer-meta deep-graph postinstall overrides-ref overrides-nested patched-deps catalog)
 FIXTURES=("$@")
 [ ${#FIXTURES[@]} -gt 0 ] || FIXTURES=("${ALL_FIXTURES[@]}")
 
@@ -137,10 +137,12 @@ skip_reason() {
   # Feature fixtures are scoped to the PM whose lockfile encodes the diverging
   # field — running them against the other PMs would test nothing. Skip the
   # off-PM combos by design (the field has no representation there).
-  #   overrides-ref / patched-deps : pnpm-only (pnpm.overrides $-refs;
-  #     patchedDependencies live in pnpm-workspace.yaml / pnpm-lock.yaml).
+  #   overrides-ref / overrides-nested / patched-deps / catalog : pnpm-only
+  #     (pnpm.overrides $-refs, nested overrides, patchedDependencies, and
+  #     catalogs live in pnpm-workspace.yaml / pnpm-lock.yaml — no npm/bun/yarn
+  #     lockfile representation).
   case "$fixture" in
-    overrides-ref|patched-deps)
+    overrides-ref|overrides-nested|patched-deps|catalog)
       [ "$pm" != "pnpm" ] && echo "$fixture exercises a pnpm-only lockfile field; not represented in $pm"
       ;;
   esac
@@ -151,9 +153,10 @@ skip_reason() {
   # when it writes the lockfile (the symmetric brand boundary). Direction B
   # then can't match real pnpm, which DOES honor `pnpm.overrides`: pnpm rejects
   # nub's override-free lockfile with ERR_PNPM_LOCKFILE_CONFIG_MISMATCH. That is
-  # intended divergence, not a fixable lockfile-writer bug. (Direction A is a
-  # real bug — pnpm wrote the lockfile, nub mis-reads the $-ref — gated in
-  # expected-failures.txt as #16.)
+  # intended divergence, not a fixable lockfile-writer bug. (Direction A — pnpm
+  # writes the lockfile, nub frozen-reads it — now passes: the $-ref read-as-
+  # drift bug #16 was fixed by the vendor/aube pin bump c948a38; this fixture is
+  # now its regression guard.)
   case "$fixture--$dir" in
     overrides-ref--B) echo "nub-identity ignores pnpm.overrides by design (brand boundary); pnpm honors it" ;;
   esac

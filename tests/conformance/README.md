@@ -59,6 +59,23 @@ Direction A: pnpm 11 writes `pnpm-lock.yaml` (lockfileVersion 9.0) → nub `--fr
 
 Both are small by design; the goal is a fast, signal-dense suite. The aube-conformance harness (`tests/aube-conformance/`) covers larger fixtures (workspaces, overrides, platform-conditionals, patched deps, git deps) for the Direction B side; this harness adds Direction A and is the regression guard for the bidirectional contract.
 
+### Differential feature fixtures (pnpm-only)
+
+These exercise the bug-prone pnpm lockfile fields. Each is scoped to pnpm via `skip_reason()` — the field has no representation in an npm/bun/yarn lockfile, so running it against those PMs would test nothing.
+
+| fixture | what it exercises | status |
+| --- | --- | --- |
+| `catalog` | a pnpm catalog (`ms: catalog:` resolved through the default catalog in `pnpm-workspace.yaml`); the `catalogs:` lockfile section | PASS A+B |
+| `overrides-nested` | a scoped nested override (`debug>ms: 2.1.3` in `pnpm-workspace.yaml`); the `overrides:` lockfile block | PASS A+B |
+| `patched-deps` | `patchedDependencies` (a real `is-odd@3.0.1` patch declared in `pnpm-workspace.yaml`); the hash/path patch map | A: PASS; B: known-red (#23) |
+| `overrides-ref` | a `pnpm.overrides` `$`-ref (`ms: $ms`) recorded resolved in the lockfile but literal in `package.json` | A: PASS (was #16); B: skip-by-design |
+
+`patched-deps` Direction B is gated in `expected-failures.txt` as #23: nub writes the patchedDependencies entry as a bare-scalar hash, but pnpm 10.x writes/requires the `hash:`/`path:` map form, so `pnpm install --frozen-lockfile` rejects nub's lockfile. Direction A (nub reads a real pnpm map-form lockfile) passes.
+
+`overrides-ref` Direction A now passes — the `$`-ref read-as-drift bug (#16) was fixed by the vendor/aube pin bump `c948a38`; the fixture is now its regression guard. Direction B is an intended brand-boundary divergence, not a bug: this fixture carries a `pnpm.overrides` block in `package.json`, and a nub-identity project consumes only neutral cross-tool fields (`overrides`/`resolutions`), never another PM's branded config — so nub writes an override-free lockfile that real pnpm rejects with `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`. (The `overrides-nested` fixture sidesteps this by declaring the override in `pnpm-workspace.yaml`, where nub mirrors pnpm faithfully.)
+
+**Features deliberately NOT given a fixture:** `peerDependenciesMeta` optional peers, bun's `minimumReleaseAge`, and bun scoped-registry URLs were each probed empirically and found to be **resolver-time config that is never encoded in any PM's lockfile** — the field never reaches the compared lockfile, so a differential fixture would be a no-op gate (it would only re-test plain install, already covered by `simple`/`scoped`). The optional-peer install path is covered by `peer-meta`.
+
 ## How to run
 
 ```sh
