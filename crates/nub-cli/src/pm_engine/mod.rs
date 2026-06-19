@@ -5,8 +5,8 @@
 //! per-family modules:
 //!
 //! - [`install_family`] — dependency-graph mutation and linking (`install`,
-//!   `ci`, `add`, `remove`, `update`, `link`, `patch*`, …). `install`/`ci`
-//!   are live (slice 2); the rest are registered stubs.
+//!   `ci`, `add`, `remove`, `update`, `link`, `patch*`, …). All are wired to
+//!   the embedded engine; `install`/`ci` dispatch via live clap verbs.
 //! - [`info_family`] — read-only project/graph/registry queries (`list`,
 //!   `why`, `outdated`, `audit`, `view`, …).
 //! - [`publish_family`] — registry writes, packaging, and auth (`publish`,
