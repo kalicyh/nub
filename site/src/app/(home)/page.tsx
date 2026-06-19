@@ -920,7 +920,7 @@ function Compatibility() {
                     style={{ width: `${r.rate}%` }}
                   >
                     {labelInside ? (
-                      <span className={`font-mono text-xs font-medium ${r.us ? 'text-[#160c08]' : 'text-fd-foreground'}`}>
+                      <span className={`font-mono text-xs font-medium ${r.us ? 'text-fd-primary-foreground' : 'text-fd-foreground'}`}>
                         {r.rate}%
                       </span>
                     ) : null}
