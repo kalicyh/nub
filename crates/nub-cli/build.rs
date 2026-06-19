@@ -17,6 +17,10 @@
 //! The docs live in-repo, so the directory is always present; if it ever goes
 //! missing the build fails loudly rather than shipping an empty TOC.
 
+// `collapsible_if` fires on nested `if let { if let }` once the workspace MSRV
+// (1.88) unlocks let-chain suggestions; collapsing it is cosmetic, so allow it.
+#![allow(clippy::collapsible_if)]
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};

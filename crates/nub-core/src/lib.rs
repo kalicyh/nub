@@ -1,5 +1,10 @@
 //! Core logic shared across Nub's CLI crates.
 
+// `collapsible_if` fires on nested `if let { if let }` once the workspace MSRV
+// (1.88) unlocks let-chain suggestions; collapsing every site is cosmetic churn,
+// so allow it.
+#![allow(clippy::collapsible_if)]
+
 pub mod node;
 pub mod pm;
 pub mod pnp;
