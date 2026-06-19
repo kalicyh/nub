@@ -103,10 +103,10 @@ fn resolve_to_concrete(spec: &str, store: &Path, host: &HostTarget) -> Result<No
 pub fn install_one(spec: &str, store: &Path, cwd: &Path) -> Result<InstallOutcome> {
     // Fast offline path: an exact `X.Y.Z` that's already cached is a no-op — don't
     // touch the network just to confirm a version we already hold.
-    if let Ok(exact) = spec.trim().parse::<NodeVersion>() {
-        if version_dir_has_node(&store.join(exact.to_string())) {
-            return Ok(InstallOutcome::AlreadyCached(exact));
-        }
+    if let Ok(exact) = spec.trim().parse::<NodeVersion>()
+        && version_dir_has_node(&store.join(exact.to_string()))
+    {
+        return Ok(InstallOutcome::AlreadyCached(exact));
     }
 
     let host = HostTarget::detect()
@@ -131,17 +131,17 @@ fn install_concrete(
     }
 
     // Already available on PATH (system / nvm) at the exact version → skip + report.
-    if let Ok(node) = discovery::discover_node(cwd) {
-        if node.version == concrete {
-            return Ok(InstallOutcome::AlreadyOnPath(concrete));
-        }
+    if let Ok(node) = discovery::discover_node(cwd)
+        && node.version == concrete
+    {
+        return Ok(InstallOutcome::AlreadyOnPath(concrete));
     }
     // Also catch the case where the resolver wouldn't pick it (no pin) but some
     // PATH node happens to be exactly this version — a direct shell probe.
-    if let Some(v) = path_node_version() {
-        if v == concrete {
-            return Ok(InstallOutcome::AlreadyOnPath(concrete));
-        }
+    if let Some(v) = path_node_version()
+        && v == concrete
+    {
+        return Ok(InstallOutcome::AlreadyOnPath(concrete));
     }
 
     provision_node(&concrete, host, store_root_of(store), None)
@@ -289,13 +289,10 @@ pub struct PinResult {
 ///   2. else the nearest `package.json` dir (the project boundary);
 ///   3. else the cwd (loose scripts).
 fn pin_target_dir(cwd: &Path) -> PathBuf {
-    if let Some(project) = crate::workspace::detect::detect_project(cwd) {
-        if let Some(ws_root) = project.workspace_root {
-            return ws_root;
-        }
-        return project.root;
+    match crate::workspace::detect::detect_project(cwd) {
+        Some(project) => project.workspace_root.unwrap_or(project.root),
+        None => cwd.to_path_buf(),
     }
-    cwd.to_path_buf()
 }
 
 /// Decision #1: edit the pin file that already exists. If the target dir has a

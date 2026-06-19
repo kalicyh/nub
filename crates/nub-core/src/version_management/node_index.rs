@@ -67,20 +67,15 @@ pub fn fetch_index(mirror_base: &str) -> Result<Vec<IndexEntry>> {
 /// failure but a stale-cache hit, fall back to the stale cache (offline-tolerant).
 pub fn load_index(cache_root: &Path, mirror_base: &str) -> Result<Vec<IndexEntry>> {
     let cache = cache_root.join("node-index.json");
-    if let Ok(meta) = std::fs::metadata(&cache) {
-        if let Ok(modified) = meta.modified() {
-            let fresh = SystemTime::now()
-                .duration_since(modified)
-                .map(|age| age < INDEX_TTL)
-                .unwrap_or(false);
-            if fresh {
-                if let Ok(body) = std::fs::read_to_string(&cache) {
-                    if let Ok(index) = parse_index(&body) {
-                        return Ok(index);
-                    }
-                }
-            }
-        }
+    if let Ok(meta) = std::fs::metadata(&cache)
+        && let Ok(modified) = meta.modified()
+        && SystemTime::now()
+            .duration_since(modified)
+            .is_ok_and(|age| age < INDEX_TTL)
+        && let Ok(body) = std::fs::read_to_string(&cache)
+        && let Ok(index) = parse_index(&body)
+    {
+        return Ok(index);
     }
 
     // Cache stale/absent — refetch and rewrite.
@@ -94,10 +89,10 @@ pub fn load_index(cache_root: &Path, mirror_base: &str) -> Result<Vec<IndexEntry
         }
         Err(fetch_err) => {
             // Offline but we have *a* cache (even if stale)? Use it rather than fail.
-            if let Ok(body) = std::fs::read_to_string(&cache) {
-                if let Ok(index) = parse_index(&body) {
-                    return Ok(index);
-                }
+            if let Ok(body) = std::fs::read_to_string(&cache)
+                && let Ok(index) = parse_index(&body)
+            {
+                return Ok(index);
             }
             Err(fetch_err).with_context(|| format!("fetching {url} (and no usable cache)"))
         }

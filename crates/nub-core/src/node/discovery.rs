@@ -203,17 +203,17 @@ pub fn discover_node(cwd: &Path) -> Result<ResolvedNode, DiscoveryError> {
 pub fn discover_node_cached(cwd: &Path) -> Option<ResolvedNode> {
     // Honor the same NODE_EXECUTABLE override surface, but only when its version
     // is already cached (no spawn).
-    if let Some(raw) = env::var_os("NODE_EXECUTABLE") {
-        if !raw.is_empty() {
-            let path = PathBuf::from(&raw);
-            let version = read_version_cache(&path)?;
-            let utf8_path = Utf8PathBuf::try_from(path).ok()?;
-            return Some(ResolvedNode {
-                path: utf8_path,
-                version,
-                pin_source: Some("NODE_EXECUTABLE".to_string()),
-            });
-        }
+    if let Some(raw) = env::var_os("NODE_EXECUTABLE")
+        && !raw.is_empty()
+    {
+        let path = PathBuf::from(&raw);
+        let version = read_version_cache(&path)?;
+        let utf8_path = Utf8PathBuf::try_from(path).ok()?;
+        return Some(ResolvedNode {
+            path: utf8_path,
+            version,
+            pin_source: Some("NODE_EXECUTABLE".to_string()),
+        });
     }
 
     // resolve_pin_chain can error (RuntimeNotNode); a version query never fails on
@@ -678,35 +678,34 @@ pub fn engines_disagreement_warning(cwd: &Path, node: &ResolvedNode) -> Option<S
     let mut warnings = Vec::new();
 
     // devEngines.runtime (winner, #1) vs the pin file (#2/#3) it overrode.
-    if pin_source == DEV_ENGINES_RUNTIME_SOURCE {
-        if let Some((raw, file_pin, file_source)) = walk_up_for_pin(cwd) {
-            // An alias pin can't be compared without resolving it first.
-            if !matches!(file_pin, VersionPin::Alias(_)) && !node.version.satisfies(&file_pin) {
-                warnings.push(format!(
-                    "Warning: Node {} is pinned via {pin_source}, but {file_source} pins \
-                     \"{raw}\". devEngines.runtime wins; update one so they agree.",
-                    node.version
-                ));
-            }
-        }
+    if pin_source == DEV_ENGINES_RUNTIME_SOURCE
+        && let Some((raw, file_pin, file_source)) = walk_up_for_pin(cwd)
+        // An alias pin can't be compared without resolving it first.
+        && !matches!(file_pin, VersionPin::Alias(_))
+        && !node.version.satisfies(&file_pin)
+    {
+        warnings.push(format!(
+            "Warning: Node {} is pinned via {pin_source}, but {file_source} pins \
+             \"{raw}\". devEngines.runtime wins; update one so they agree.",
+            node.version
+        ));
     }
 
     // The winning pin vs package.json#engines.node (#4) — unless engines.node
     // IS the winning source (it can't disagree with itself).
-    if pin_source != ENGINES_NODE_SOURCE {
-        if let Some((range, engines_source)) = read_engines_node(cwd) {
-            // Same grammar as the chain (operator-space, `||`, hyphen) — a range
-            // the chain could honor must not be silently un-comparable here.
-            if let Ok(pin) = VersionPin::parse_allowing_ranges(&range) {
-                if !matches!(pin, VersionPin::Alias(_)) && !node.version.satisfies(&pin) {
-                    warnings.push(format!(
-                        "Warning: Node {} is pinned via {pin_source}, but {engines_source} requires \
-                         \"{range}\". The pin wins; update the pin or the engines range so they agree.",
-                        node.version
-                    ));
-                }
-            }
-        }
+    if pin_source != ENGINES_NODE_SOURCE
+        && let Some((range, engines_source)) = read_engines_node(cwd)
+        // Same grammar as the chain (operator-space, `||`, hyphen) — a range
+        // the chain could honor must not be silently un-comparable here.
+        && let Ok(pin) = VersionPin::parse_allowing_ranges(&range)
+        && !matches!(pin, VersionPin::Alias(_))
+        && !node.version.satisfies(&pin)
+    {
+        warnings.push(format!(
+            "Warning: Node {} is pinned via {pin_source}, but {engines_source} requires \
+             \"{range}\". The pin wins; update the pin or the engines range so they agree.",
+            node.version
+        ));
     }
 
     if warnings.is_empty() {
@@ -737,10 +736,10 @@ fn which_node() -> Result<PathBuf, DiscoveryError> {
 
     for dir in env::split_paths(&path_var) {
         // Skip our own PATH shim directories.
-        if let Some(name) = dir.file_name() {
-            if name.to_string_lossy().starts_with("nub-node-shim-") {
-                continue;
-            }
+        if let Some(name) = dir.file_name()
+            && name.to_string_lossy().starts_with("nub-node-shim-")
+        {
+            continue;
         }
 
         let candidate = dir.join("node");
@@ -981,13 +980,9 @@ fn nvm_dir() -> Option<PathBuf> {
             return Some(path);
         }
     }
-    let home = dirs_next::home_dir()?;
-    let default = home.join(".nvm");
-    if default.is_dir() {
-        Some(default)
-    } else {
-        None
-    }
+    dirs_next::home_dir()
+        .map(|home| home.join(".nvm"))
+        .filter(|default| default.is_dir())
 }
 
 #[cfg(test)]

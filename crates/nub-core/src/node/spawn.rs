@@ -477,10 +477,10 @@ pub fn spawn_node(config: &SpawnConfig<'_>) -> Result<SpawnResult> {
             // Escape hatches unchanged: NODE_COMPILE_CACHE yourself, or
             // NODE_DISABLE_COMPILE_CACHE=1 (honored by Node).
             cmd.env_remove("NODE_COMPILE_CACHE");
-            if let Some(dir) = dir.to_str() {
-                if write_compile_cache_sentinel(dir).is_ok() {
-                    _ccache_guard = Some(CompileCacheSentinelGuard);
-                }
+            if let Some(dir) = dir.to_str()
+                && write_compile_cache_sentinel(dir).is_ok()
+            {
+                _ccache_guard = Some(CompileCacheSentinelGuard);
             }
         }
 
@@ -524,20 +524,19 @@ pub fn spawn_node(config: &SpawnConfig<'_>) -> Result<SpawnResult> {
         // 22.5 the flag does not exist and is REJECTED in NODE_OPTIONS ("not allowed
         // in NODE_OPTIONS"), aborting every nub invocation before it runs a line — so
         // it must be version-gated exactly like --disable-warning / webstorage.
-        if flags::test_coverage_exclude_supported(&config.node.version) {
-            if let Some(ref p) = preload {
-                if let Some(runtime_dir) = Path::new(p).parent() {
-                    // Quote the glob value: the runtime dir can sit under a spacey
-                    // install path (Windows `Program Files`, macOS `Application
-                    // Support`); an unquoted space would split the flag and either
-                    // abort ("not allowed in NODE_OPTIONS" on the fragment) or
-                    // silently drop the exclude.
-                    node_opts_parts.push(format!(
-                        "--test-coverage-exclude={}",
-                        node_options_quote(&format!("{}/**", runtime_dir.display()))
-                    ));
-                }
-            }
+        if flags::test_coverage_exclude_supported(&config.node.version)
+            && let Some(ref p) = preload
+            && let Some(runtime_dir) = Path::new(p).parent()
+        {
+            // Quote the glob value: the runtime dir can sit under a spacey
+            // install path (Windows `Program Files`, macOS `Application
+            // Support`); an unquoted space would split the flag and either
+            // abort ("not allowed in NODE_OPTIONS" on the fragment) or
+            // silently drop the exclude.
+            node_opts_parts.push(format!(
+                "--test-coverage-exclude={}",
+                node_options_quote(&format!("{}/**", runtime_dir.display()))
+            ));
         }
         // Web Storage (mirrors the argv site above): always inject
         // `--experimental-webstorage` into NODE_OPTIONS on the flag-needed band

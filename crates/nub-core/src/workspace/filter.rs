@@ -279,19 +279,19 @@ fn expand_member_patterns(workspace_root: &Path, patterns: &[String]) -> Vec<Wor
         }
         let dir = workspace_root.join(&rel);
         let member_pkg = dir.join("package.json");
-        if let Ok(content) = fs::read_to_string(&member_pkg) {
-            if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content) {
-                let name = manifest
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                members.push(WorkspacePackage {
-                    name,
-                    dir,
-                    manifest,
-                });
-            }
+        if let Ok(content) = fs::read_to_string(&member_pkg)
+            && let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content)
+        {
+            let name = manifest
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            members.push(WorkspacePackage {
+                name,
+                dir,
+                manifest,
+            });
         }
     }
 

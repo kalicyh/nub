@@ -150,10 +150,10 @@ fn yarn_hint(content: &str) -> Option<PmVersionHint> {
 fn yaml_scalar(rest: &str) -> &str {
     let rest = rest.trim();
     for quote in ['"', '\''] {
-        if let Some(inner) = rest.strip_prefix(quote) {
-            if let Some(end) = inner.find(quote) {
-                return &inner[..end];
-            }
+        if let Some(inner) = rest.strip_prefix(quote)
+            && let Some(end) = inner.find(quote)
+        {
+            return &inner[..end];
         }
     }
     match rest.split_once(" #") {

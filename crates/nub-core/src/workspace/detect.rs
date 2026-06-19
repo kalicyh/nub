@@ -22,17 +22,16 @@ pub fn detect_project(cwd: &Path) -> Option<Project> {
 
     for _ in 0..32 {
         let pkg_path = dir.join("package.json");
-        if pkg_path.is_file() {
-            if let Ok(content) = fs::read_to_string(&pkg_path) {
-                if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if project_root.is_none() {
-                        project_root = Some((dir.clone(), manifest.clone()));
-                    }
-                    if manifest.get("workspaces").is_some() {
-                        workspace_root = Some(dir.clone());
-                        break;
-                    }
-                }
+        if pkg_path.is_file()
+            && let Ok(content) = fs::read_to_string(&pkg_path)
+            && let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content)
+        {
+            if project_root.is_none() {
+                project_root = Some((dir.clone(), manifest.clone()));
+            }
+            if manifest.get("workspaces").is_some() {
+                workspace_root = Some(dir.clone());
+                break;
             }
         }
 
@@ -47,10 +46,10 @@ pub fn detect_project(cwd: &Path) -> Option<Project> {
             workspace_root = Some(dir.clone());
             if project_root.is_none() {
                 let pkg_path = dir.join("package.json");
-                if let Ok(content) = fs::read_to_string(&pkg_path) {
-                    if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content) {
-                        project_root = Some((dir.clone(), manifest));
-                    }
+                if let Ok(content) = fs::read_to_string(&pkg_path)
+                    && let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content)
+                {
+                    project_root = Some((dir.clone(), manifest));
                 }
             }
             break;
@@ -73,13 +72,11 @@ pub fn find_workspace_members(workspace_root: &Path, _filter: Option<&str>) -> V
     // Simplified: read the workspace root's package.json for the
     // workspaces field and glob-match. Full glob support deferred.
     let pkg_path = workspace_root.join("package.json");
-    let content = match fs::read_to_string(&pkg_path) {
-        Ok(c) => c,
-        Err(_) => return vec![],
+    let Ok(content) = fs::read_to_string(&pkg_path) else {
+        return vec![];
     };
-    let manifest: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return vec![],
+    let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return vec![];
     };
 
     let patterns = match manifest.get("workspaces") {

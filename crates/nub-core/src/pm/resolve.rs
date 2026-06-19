@@ -817,14 +817,14 @@ fn classify(name: &str, version: Option<&str>) -> Result<PmPin> {
             // wrong (classic-tarball) artifact for a Berry tag. A genuinely absent
             // version (the lockfile-inference seam) still flows through the yarnrc
             // signal in `classify_yarn`.
-            if let Some(v) = version {
-                if yarn_major(v).is_none() {
-                    bail!(
-                        "yarn \"{v}\" must be an exact version (e.g. yarn@4.2.2) — \
-                         dist-tags and ranges (yarn@stable, yarn@berry) are unsupported \
-                         in a yarn pin"
-                    );
-                }
+            if let Some(v) = version
+                && yarn_major(v).is_none()
+            {
+                bail!(
+                    "yarn \"{v}\" must be an exact version (e.g. yarn@4.2.2) — \
+                     dist-tags and ranges (yarn@stable, yarn@berry) are unsupported \
+                     in a yarn pin"
+                );
             }
             classify_yarn(version, false)
         }
@@ -909,10 +909,10 @@ pub fn committed_yarn_path(cwd: &Path) -> Option<PathBuf> {
 fn strip_yaml_value(rest: &str) -> &str {
     let rest = rest.trim();
     for quote in ['"', '\''] {
-        if let Some(inner) = rest.strip_prefix(quote) {
-            if let Some(end) = inner.find(quote) {
-                return &inner[..end];
-            }
+        if let Some(inner) = rest.strip_prefix(quote)
+            && let Some(end) = inner.find(quote)
+        {
+            return &inner[..end];
         }
     }
     // Unquoted: an inline comment starts at the first ` #` (space then hash);
