@@ -1,0 +1,10 @@
+{
+  "name": "conform-dist-tag-spec",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Drop-in PM conformance fixture: dist-tag and wildcard declared specs. 'is-odd' is declared as the 'latest' dist-tag and 'is-even' as '*' — both resolve to a concrete version, but every lockfile must serialize the DECLARED spec verbatim (latest / *), not the resolved version. Catches the classic writer re-normalization churn bug.",
+  "dependencies": {
+    "is-odd": "latest",
+    "is-even": "*"
+  }
+}

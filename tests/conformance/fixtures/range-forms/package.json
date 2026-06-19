@@ -1,0 +1,12 @@
+{
+  "name": "conform-range-forms",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Drop-in PM conformance fixture: the four declared range forms isolated — exact (2.1.3), caret (^4.1.5), tilde (~4.0.0), and a compound range (>=7 <8). Each is stored verbatim in the importer/dependencies block; a writer that re-normalizes a range (caret->exact, or collapsing a compound range) churns Direction B.",
+  "dependencies": {
+    "ms": "2.1.3",
+    "kleur": "^4.1.5",
+    "type-fest": "~4.0.0",
+    "semver": ">=7 <8"
+  }
+}

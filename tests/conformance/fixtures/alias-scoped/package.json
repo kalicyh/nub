@@ -1,0 +1,9 @@
+{
+  "name": "conform-alias-scoped",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Drop-in PM conformance fixture: an npm: alias whose TARGET is scoped (npm:@scope/pkg@ver). 'semver-types' aliases @types/semver, so the resolved key embeds the @scope segment — a distinct key-encoding path from the unscoped 'alias' fixture. yarn v1's alias syntax diverges (skip_reason).",
+  "dependencies": {
+    "semver-types": "npm:@types/semver@7.5.0"
+  }
+}

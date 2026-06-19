@@ -36,7 +36,7 @@ NUB="$(cd "$(dirname "$NUB")" && pwd)/$(basename "$NUB")"
 NUB_VERSION="$("$NUB" --version 2>/dev/null || echo '?')"
 
 # Fixture list — each is a subdirectory of fixtures/
-ALL_FIXTURES=(simple peers scoped optional-deps alias file-dep peer-meta deep-graph postinstall overrides-ref overrides-nested patched-deps catalog workspace git-dep platform-optional)
+ALL_FIXTURES=(simple peers scoped optional-deps alias file-dep peer-meta deep-graph postinstall overrides-ref overrides-nested patched-deps catalog workspace git-dep platform-optional dist-tag-spec range-forms alias-scoped)
 FIXTURES=("$@")
 [ ${#FIXTURES[@]} -gt 0 ] || FIXTURES=("${ALL_FIXTURES[@]}")
 
@@ -132,6 +132,13 @@ skip_reason() {
     # mismatches, not nub bugs.
     alias--A--yarn) echo "yarn v1 alias syntax diverges from npm: protocol" ;;
     alias--B--yarn) echo "yarn v1 alias syntax diverges from npm: protocol" ;;
+
+    # alias-scoped: same yarn-v1 npm:-alias divergence as `alias`, here with a
+    # SCOPED target (npm:@types/semver@7.5.0). yarn v1 records the alias under a
+    # different key shape than the npm: protocol, so both directions are an
+    # ecosystem mismatch, not a nub bug.
+    alias-scoped--A--yarn) echo "yarn v1 alias syntax diverges from npm: protocol" ;;
+    alias-scoped--B--yarn) echo "yarn v1 alias syntax diverges from npm: protocol" ;;
 
     # The workspace fixture declares its internal dep with the `workspace:*`
     # protocol. Only pnpm and bun (and yarn-berry) understand that protocol;
