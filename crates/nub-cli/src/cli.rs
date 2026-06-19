@@ -6,6 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use anyhow::{Context, Result, bail};
+use clap::{Parser, Subcommand, ValueEnum};
+
 /// Stable, branded error codes for nub-cli's own (non-engine) failure paths.
 /// The engine's `ERR_AUBE_*` codes are rewritten to `ERR_NUB_*` at presentation
 /// (see `pm_engine::present`); these are nub's native equivalents, embedded
@@ -242,9 +245,6 @@ fn apply_env_file_vars(cmd: &mut std::process::Command) {
         }
     }
 }
-
-use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand, ValueEnum};
 
 /// The invocation context derived from argv[0].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3650,30 +3650,38 @@ fn apply_exec_augmentation(cmd: &mut std::process::Command, cwd: &Path) {
 // dlx removed per the maintainer 2026-05-26 (exec.md). nubx is local-bin-only; on a miss it
 // SUGGESTS the PM dlx command and exits non-zero (127) — it never runs a fetch.
 
-/// The package manager a redirect/hint should name, keyed off a committed
-/// lockfile (the strongest signal that the project genuinely *is* that PM). With
-/// no lockfile, falls back to npm. Callers that want the no-lockfile case to
-/// honor the *declared* pin (or default to nub) use [`suggest_package_manager`].
-fn detect_package_manager(cwd: &Path) -> String {
+/// Walk up from `cwd` (bounded to 16 levels) looking for a lockfile, returning
+/// the owning PM's name as soon as one is found. Shared by
+/// [`detect_package_manager`] and [`suggest_package_manager`]; the two differ
+/// only in their no-lockfile fallback.
+fn lockfile_package_manager(cwd: &Path) -> Option<&'static str> {
     let mut dir = cwd.to_path_buf();
     for _ in 0..16 {
         if dir.join("pnpm-lock.yaml").is_file() {
-            return "pnpm".to_string();
+            return Some("pnpm");
         }
         if dir.join("yarn.lock").is_file() {
-            return "yarn".to_string();
+            return Some("yarn");
         }
         if dir.join("bun.lockb").is_file() || dir.join("bun.lock").is_file() {
-            return "bun".to_string();
+            return Some("bun");
         }
         if dir.join("package-lock.json").is_file() {
-            return "npm".to_string();
+            return Some("npm");
         }
         if !dir.pop() {
             break;
         }
     }
-    "npm".to_string()
+    None
+}
+
+/// The package manager a redirect/hint should name, keyed off a committed
+/// lockfile (the strongest signal that the project genuinely *is* that PM). With
+/// no lockfile, falls back to npm. Callers that want the no-lockfile case to
+/// honor the *declared* pin (or default to nub) use [`suggest_package_manager`].
+fn detect_package_manager(cwd: &Path) -> String {
+    lockfile_package_manager(cwd).unwrap_or("npm").to_string()
 }
 
 /// Like [`detect_package_manager`], but when there's no lockfile yet (a fresh
@@ -3683,23 +3691,8 @@ fn detect_package_manager(cwd: &Path) -> String {
 /// nub itself). Used by the `nubx` not-installed hint, where suggesting the wrong
 /// PM's `add`/`dlx` (npm in a nub/pnpm context) is the bug this fixes.
 fn suggest_package_manager(cwd: &Path) -> String {
-    let mut dir = cwd.to_path_buf();
-    for _ in 0..16 {
-        if dir.join("pnpm-lock.yaml").is_file() {
-            return "pnpm".to_string();
-        }
-        if dir.join("yarn.lock").is_file() {
-            return "yarn".to_string();
-        }
-        if dir.join("bun.lockb").is_file() || dir.join("bun.lock").is_file() {
-            return "bun".to_string();
-        }
-        if dir.join("package-lock.json").is_file() {
-            return "npm".to_string();
-        }
-        if !dir.pop() {
-            break;
-        }
+    if let Some(pm) = lockfile_package_manager(cwd) {
+        return pm.to_string();
     }
     // No lockfile: prefer the explicitly declared PM, else nub itself.
     match nub_core::pm::resolve::project_pm_identity(cwd).map(|id| id.name) {
@@ -3785,18 +3778,17 @@ fn detect_channel(bin_path: &Path) -> UpgradeChannel {
     // Self-owned: the binary sits at `<install_dir>/bin/nub`, where install_dir
     // ends in `.nub` (install.sh: `$HOME/.nub/bin/nub`). Derive install_dir by
     // walking up from the binary so a copied-but-intact `.nub` tree still swaps.
-    if let Some(bin_dir) = bin_path.parent() {
-        if bin_dir.file_name().is_some_and(|n| n == "bin") {
-            if let Some(install_dir) = bin_dir.parent() {
-                if install_dir.file_name().is_some_and(|n| n == ".nub") {
-                    return UpgradeChannel::SelfOwned {
-                        install_dir: install_dir.to_path_buf(),
-                    };
-                }
-            }
-        }
+    let install_dir = bin_path
+        .parent()
+        .filter(|bin_dir| bin_dir.file_name().is_some_and(|n| n == "bin"))
+        .and_then(Path::parent)
+        .filter(|install_dir| install_dir.file_name().is_some_and(|n| n == ".nub"));
+    match install_dir {
+        Some(dir) => UpgradeChannel::SelfOwned {
+            install_dir: dir.to_path_buf(),
+        },
+        None => UpgradeChannel::Unknown,
     }
-    UpgradeChannel::Unknown
 }
 
 /// The release-artifact platform token for the current build, mirroring
@@ -4576,6 +4568,7 @@ fn provision_pm_humanized(
 fn run_pm(args: &[String]) -> Result<i32> {
     use nub_core::pm::Pm;
     use nub_core::pm::resolve::{self, PmTarget};
+    use std::io::Write as _;
 
     let cwd = env::current_dir()?;
 
@@ -4612,7 +4605,6 @@ fn run_pm(args: &[String]) -> Result<i32> {
                 let exe = nub_core::node::spawn::current_nub_binary()
                     .unwrap_or_else(|_| PathBuf::from("nub"));
                 println!("{}", exe.display());
-                use std::io::Write as _;
                 std::io::stdout().flush().ok();
                 eprintln!("» this project uses nub (resolved from packageManager)");
                 return Ok(0);
@@ -4644,7 +4636,6 @@ fn run_pm(args: &[String]) -> Result<i32> {
                 PmTarget::BerryNoYarnPath => bail!(berry_no_yarn_path_msg()),
             };
             println!("{}", path.display());
-            use std::io::Write as _;
             std::io::stdout().flush().ok();
             eprintln!("» {provenance}");
             Ok(0)

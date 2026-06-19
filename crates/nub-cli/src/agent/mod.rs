@@ -136,10 +136,9 @@ fn resolve_slug(arg: &str) -> Option<&'static (&'static str, &'static str, &'sta
     let arg = arg.split('#').next().unwrap_or(arg);
     let trimmed = arg.trim_matches('/');
     // Candidate canonical forms to try against the baked slugs.
-    let with_docs = format!("/docs/{trimmed}");
     let candidates = [
-        format!("/{trimmed}"), // exact (already had a leading slash)
-        with_docs.clone(),     // bare path, prepend /docs
+        format!("/{trimmed}"),      // exact (already had a leading slash)
+        format!("/docs/{trimmed}"), // bare path, prepend /docs
         format!("/docs/{}", trimmed.strip_prefix("docs/").unwrap_or(trimmed)),
     ];
     DOCS.iter().find(|(s, _, _)| {
@@ -159,9 +158,10 @@ fn print_page(slug: &str) -> Result<i32> {
             Ok(0)
         }
         None => {
+            use std::fmt::Write as _;
             let mut msg = format!("nub agent docs: unknown page '{slug}'.\n\nAvailable pages:\n");
             for (s, title, _) in DOCS {
-                msg.push_str(&format!("  {s} — {title}\n"));
+                let _ = writeln!(msg, "  {s} — {title}");
             }
             bail!(msg);
         }
