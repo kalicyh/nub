@@ -17,8 +17,9 @@
 //!   three-state `allowBuilds` map, `auditConfig`);
 //! - settings → `.npmrc` (the same vocabulary, kebab spellings — one engine
 //!   reads both homes, so this is a mechanical move, not a translation);
-//! - engine-unsupported keys → warn-drop naming each (injected-deps state
-//!   REFUSES the migration outright);
+//! - engine-unsupported keys → warn-drop naming each (the three repo-wide
+//!   inject *settings* warn-drop; plain `dependenciesMeta.injected` deps are
+//!   supported and migrate);
 //! - everything else (transient flags persisted in yaml, keys with no
 //!   surviving home) → the loud warn tail. Nothing is ever dropped silently.
 //!
@@ -181,10 +182,12 @@ const NPMRC_KEYS: &[&str] = &[
 ];
 
 /// Keys the engine has zero implementation for: warn-drop, naming each and
-/// carrying the remedy/context note in the summary. (`injectWorkspacePackages`
-/// is here for the *setting*; actual injected-deps state — any
-/// `dependenciesMeta.injected` — REFUSES the whole migration, see
-/// [`refuse_on_injected_deps`].)
+/// carrying the remedy/context note in the summary. (Plain
+/// `dependenciesMeta.injected` deps ARE supported — the engine materializes
+/// the hard-copy peer closure on install — so they do not block migration.
+/// The three repo-wide *settings* below — `injectWorkspacePackages`,
+/// `dedupeInjectedDeps`, `syncInjectedDepsAfterScripts` — are the only
+/// not-yet-implemented inject features, and they warn-drop here.)
 const ENGINE_UNSUPPORTED: &[(&str, &str)] = &[
     (
         "configDependencies",
@@ -200,15 +203,15 @@ const ENGINE_UNSUPPORTED: &[(&str, &str)] = &[
     ),
     (
         "injectWorkspacePackages",
-        "injected workspace dependencies are not implemented",
+        "repo-wide auto-injection of every workspace dependency is not implemented — per-dependency dependenciesMeta.injected is honored",
     ),
     (
         "dedupeInjectedDeps",
-        "injected workspace dependencies are not implemented",
+        "deduplication of identical injected copies is not implemented — injected deps still install correctly, just not collapsed",
     ),
     (
         "syncInjectedDepsAfterScripts",
-        "injected workspace dependencies are not implemented",
+        "re-snapshotting injected deps after build scripts is not implemented — injected deps are materialized once at install",
     ),
     (
         "useNodeVersion",
@@ -519,48 +522,6 @@ pub(crate) fn plan_migration(source: &Map<String, Value>) -> Result<YamlMigratio
     Ok(m)
 }
 
-/// Refuse the migration when injected-deps state exists anywhere: any
-/// `dependenciesMeta.<dep>.injected: true` in the root or a workspace member
-/// manifest. The engine has no injected-deps implementation, so migrating
-/// would silently change install semantics — exactly what `use` must never
-/// do. Members are enumerated through the engine's own workspace discovery
-/// (the yaml still exists at this point).
-pub(crate) fn refuse_on_injected_deps(root: &Path) -> Result<()> {
-    let mut offenders: Vec<String> = Vec::new();
-    let mut dirs = vec![root.to_path_buf()];
-    if let Ok(members) = aube_workspace::find_workspace_packages(root) {
-        dirs.extend(members);
-    }
-    for dir in dirs {
-        let manifest_path = dir.join("package.json");
-        let Ok(content) = std::fs::read_to_string(&manifest_path) else {
-            continue;
-        };
-        let Ok(manifest) = serde_json::from_str::<Value>(&content) else {
-            continue;
-        };
-        let injected = manifest
-            .get("dependenciesMeta")
-            .and_then(Value::as_object)
-            .is_some_and(|meta| {
-                meta.values()
-                    .any(|m| m.get("injected").and_then(Value::as_bool) == Some(true))
-            });
-        if injected {
-            offenders.push(manifest_path.display().to_string());
-        }
-    }
-    if !offenders.is_empty() {
-        bail!(
-            "this workspace uses injected dependencies (dependenciesMeta.injected in {}) — \
-             not implemented by nub's engine, so `nub pm use nub` would change install \
-             semantics. Staying on pnpm is the right call here.",
-            offenders.join(", ")
-        );
-    }
-    Ok(())
-}
-
 /// Apply the migration's package.json half onto the (already parsed) root
 /// manifest object, plus the identity fields. Merge rules preserve the
 /// pre-switch EFFECTIVE config:
@@ -785,7 +746,6 @@ pub(crate) fn run_use_nub(root: &Path) -> Result<i32> {
 
     // ── plan everything before writing anything (refuse-early) ──────────
     let plan = use_align::plan_alignment(root, "nub")?;
-    refuse_on_injected_deps(root)?;
 
     let manifest_content = std::fs::read_to_string(root.join("package.json"))
         .with_context(|| format!("reading {}", root.join("package.json").display()))?;

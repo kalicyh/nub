@@ -187,11 +187,14 @@ fn use_nub_recovers_from_a_crash_before_the_yaml_deletion() {
     );
 }
 
-/// Injected-deps state refuses the whole switch before anything is written —
-/// the engine has no injected-deps implementation, and `use` never silently
-/// changes install semantics.
+/// Plain `dependenciesMeta.injected` deps no longer block the switch: the
+/// engine materializes the hard-copy peer closure on install under nub
+/// identity exactly as it did under pnpm, so migrating does not change install
+/// semantics. The migration completes and the dependenciesMeta is preserved
+/// byte-for-byte in the manifest.
 #[test]
-fn use_nub_refuses_injected_deps_with_nothing_written() {
+fn use_nub_migrates_with_injected_deps_and_preserves_meta() {
+    let nub_ver = env!("CARGO_PKG_VERSION");
     let dir = project(
         "injected",
         &[
@@ -204,21 +207,22 @@ fn use_nub_refuses_injected_deps_with_nothing_written() {
         ],
     );
     let (stdout, stderr, code) = run(&dir, &["pm", "use", "nub"]);
-    assert_ne!(code, 0, "injected deps must refuse: {stdout}");
+    assert_eq!(code, 0, "stdout: {stdout}\nstderr: {stderr}");
+
+    // The switch completed: yaml renamed, identity flipped, pnpm namespace gone.
     assert!(
-        stderr.contains("injected") && stderr.contains("package.json"),
-        "the refusal must name the state and where it lives: {stderr}"
+        dir.join("lock.yaml").is_file()
+            && !dir.join("pnpm-lock.yaml").exists()
+            && !dir.join("pnpm-workspace.yaml").exists(),
+        "the migration must complete the lockfile rename + yaml deletion: {stdout}"
     );
-    assert!(
-        dir.join("pnpm-workspace.yaml").exists()
-            && dir.join("pnpm-lock.yaml").exists()
-            && !dir.join("lock.yaml").exists(),
-        "a refusal must leave the project byte-untouched"
-    );
-    let manifest = std::fs::read_to_string(dir.join("package.json")).unwrap();
-    assert!(
-        manifest.contains("pnpm@10.0.0"),
-        "the declaration must be untouched after the refusal"
+    let manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).unwrap()).unwrap();
+    assert_eq!(manifest["packageManager"], format!("nub@{nub_ver}"));
+    // The injected dependenciesMeta survives untouched — the install path honors it.
+    assert_eq!(
+        manifest["dependenciesMeta"]["sibling"]["injected"], true,
+        "dependenciesMeta.injected must be preserved through the migration: {manifest}"
     );
 }
 
