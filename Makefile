@@ -9,7 +9,7 @@ else
   CARGO_FLAGS =
 endif
 
-.PHONY: build addon install-dev uninstall-dev test test-node-matrix clean npm-build npm-publish npm-publish-dry
+.PHONY: build addon addon-fast install-dev uninstall-dev test test-node-matrix clean npm-build npm-publish npm-publish-dry
 
 build: addon
 	$(CARGO) build $(CARGO_FLAGS)
@@ -29,13 +29,32 @@ addon:
 	 echo "Warning: could not find nub-native library"
 	@echo "Built: runtime/addons/nub-native.node"
 
-install-dev: build
-	ln -sf $(CURDIR)/$(TARGET) $(BIN_DIR)/nub-dev
-	ln -sf $(CURDIR)/$(TARGET) $(BIN_DIR)/nubx-dev
-	@echo "Installed: $(BIN_DIR)/nub-dev -> $(TARGET)"
-	@echo "Installed: $(BIN_DIR)/nubx-dev -> $(TARGET)"
+# Dev install uses the `fast` profile (no LTO, cgu=256), NOT release: nub-dev is
+# the iteration binary, and the release profile's lto=thin + cgu=1 makes every
+# rebuild re-LTO-codegen the whole binary (the ~300s nub-cli critical-path tail).
+# The fast profile rebuilds it in a fraction of that. addon-fast builds the
+# native addon under the same profile so a single `cargo build --profile fast`
+# pass serves both.
+install-dev: addon-fast
+	$(CARGO) build --profile fast
+	ln -sf $(CURDIR)/target/fast/nub $(BIN_DIR)/nub-dev
+	ln -sf $(CURDIR)/target/fast/nub $(BIN_DIR)/nubx-dev
+	@echo "Installed: $(BIN_DIR)/nub-dev -> target/fast/nub"
+	@echo "Installed: $(BIN_DIR)/nubx-dev -> target/fast/nub"
 	@echo ""
 	@nub-dev --version
+
+# Native addon built under the `fast` profile (mirrors `addon`, which is release).
+# See `addon` for the rm-before-cp code-signing rationale.
+addon-fast:
+	$(CARGO) build -p nub-native --profile fast
+	@mkdir -p runtime/addons
+	@rm -f runtime/addons/nub-native.node
+	@cp target/fast/libnub_native.dylib runtime/addons/nub-native.node 2>/dev/null || \
+	 cp target/fast/libnub_native.so runtime/addons/nub-native.node 2>/dev/null || \
+	 cp target/fast/nub_native.dll runtime/addons/nub-native.node 2>/dev/null || \
+	 echo "Warning: could not find nub-native library"
+	@echo "Built: runtime/addons/nub-native.node (fast profile)"
 
 uninstall-dev:
 	rm -f $(BIN_DIR)/nub-dev $(BIN_DIR)/nubx-dev

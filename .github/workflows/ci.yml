@@ -153,18 +153,23 @@ jobs:
           } >> "$GITHUB_ENV"
       - run: pnpm install --frozen-lockfile
       # The data-format loader tests need the nub-native addon (the npm yaml/toml/
-      # json5 parser fallback isn't a dev dep), exactly like the release test gate.
+      # json5 parser fallback isn't a dev dep). Built in DEBUG, not release: the
+      # tests only need the addon to LOAD (the loaders are exercised at runtime,
+      # no release-only behavior is asserted), and `cargo test` below compiles
+      # everything in debug — a release addon build recompiles the whole oxc
+      # toolchain a second time per matrix cell for no test signal. The debug
+      # artifacts are reused by `cargo test`.
       - name: Build nub-native addon (for data-format loader tests)
         shell: bash
         run: |
-          cargo build --release -p nub-native
+          cargo build -p nub-native
           mkdir -p runtime/addons
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            cp target/release/nub_native.dll runtime/addons/nub-native.node
+            cp target/debug/nub_native.dll runtime/addons/nub-native.node
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            cp target/release/libnub_native.dylib runtime/addons/nub-native.node
+            cp target/debug/libnub_native.dylib runtime/addons/nub-native.node
           else
-            cp target/release/libnub_native.so runtime/addons/nub-native.node
+            cp target/debug/libnub_native.so runtime/addons/nub-native.node
           fi
       - run: cargo test
       # Brand-boundary sweep for the embedded PM engine: a real `nub install`
