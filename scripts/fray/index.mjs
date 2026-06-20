@@ -28,6 +28,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, STATUS, TERMINAL } from './config.mjs';
+import { parseAgents } from '../../.claude/hooks/fray-agent-liveness.mjs';
+import { deriveAgentState, findAgentOutputAge } from '../../.claude/hooks/fray-agent-status.mjs';
 
 const PROJECT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FRAY_DIR = join(PROJECT_DIR, '.fray');
@@ -161,6 +163,14 @@ const threads = readdirSync(FRAY_DIR)
     }
     const dependsOn = parseList(fm?.depends_on);
     const next = nextStep(src);
+    const threadTerminal = TERMINAL.includes(fm?.status ?? '?');
+    // Agent liveness is DERIVED, never read from a stored per-agent flag: the binding
+    // carries only immutable `{id, label}`; state comes from output-file age (ground
+    // truth) + the thread's own status, via the SAME derivation the Stop hook uses.
+    const agents = parseAgents(src).map((a) => ({
+      ...a,
+      state: deriveAgentState({ ageMin: findAgentOutputAge(a.id), threadTerminal }),
+    }));
     return {
       id,
       title: fm?.title ?? '',
@@ -168,6 +178,7 @@ const threads = readdirSync(FRAY_DIR)
       statusText: fm?.statusText ?? '',
       next,
       dependsOn,
+      agents,
       text: src,
       errors,
       /** @type {string[]} */ warnings: [],
@@ -309,6 +320,14 @@ for (const s of showStatuses) {
       out.push(b.length
         ? `    ⏳ blocked on: ${b.join(', ')}`
         : `    ▶ READY — dependencies clear, dispatch now`);
+    }
+    // Dispatched-agent liveness — DERIVED (output-file age + thread status), never stored.
+    for (const a of t.agents) {
+      if (a.state === 'fresh' || a.state === 'terminal' || a.state === 'unknown') continue;
+      const who = `${a.label ? `${a.label} ` : ''}[${a.id.slice(0, 9)}]`;
+      out.push(a.state === 'unreconciled'
+        ? `    ⚠ UNRECONCILED agent ${who} — output stale, thread non-terminal; fold + reconcile`
+        : `    ⚠ IDLE agent ${who} — no recent output; poke or confirm mid-build`);
     }
     for (const w of t.warnings) out.push(`    ⚠ ${w}`);
   }
