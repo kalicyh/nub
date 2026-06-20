@@ -1,0 +1,91 @@
+name: pnpm conformance
+
+# Run pnpm's OWN black-box CLI test suite against the nub binary.
+#
+# pnpm's front-door package (`pnpm/` inside pnpm/pnpm) ships ~64 test files in
+# pnpm/test/*.ts; 63 spawn the real binary through ONE seam (pnpmBinLocation in
+# pnpm/test/utils/execPnpm.ts). The harness (tests/pnpm-conformance/) clones pnpm
+# at a tag matching nub's spoofed pnpm version, bootstraps it, swaps that seam for
+# nub (identified as pnpm via argv[0]), runs jest over pnpm/test/, and classifies
+# each failure against an allowlist of intended divergences + tracked bugs. A
+# SURPRISE failure (unexpected divergence) or a STALE allowlist entry fails the
+# run. Full design + bootstrap notes: tests/pnpm-conformance/README.md.
+#
+# CADENCE — non-blocking on purpose. This is a NEW external-suite CI surface with
+# real flake sources (the registry-mock verdaccio bootstrap, network for the
+# pinned clone + a Node-20 download). It runs NIGHTLY and ON-DEMAND only, NOT on
+# every PR, so a flaky upstream suite never gates the trunk. Promote to a per-PR
+# gate only once it has proven stable over several nightly runs.
+
+on:
+  schedule:
+    # Nightly at 08:00 UTC (offset from the lockfile-roundtrip nightly at 07:00).
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+    inputs:
+      pnpm_tag:
+        description: "pnpm git tag to clone & pin (e.g. v10.15.1)"
+        required: false
+        default: "v10.15.1"
+      jest_args:
+        description: "extra jest args (e.g. a single file: test/root.ts) — leave blank for the full suite"
+        required: false
+        default: ""
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pin pnpm to the major nub spoofs (keep in sync with PNPM_PIN in
+  # lockfile-roundtrip.yml and the harness README).
+  PNPM_TAG: ${{ github.event.inputs.pnpm_tag || 'v10.15.1' }}
+  PNPM_PIN: "10.15.1"
+  # B3 flake mitigation: gate nub/aube self-update so no banner pollutes stdout.
+  NUB_NO_UPDATE: "1"
+  AUBE_NO_UPDATE_CHECK: "1"
+
+jobs:
+  conformance:
+    name: pnpm black-box suite vs nub (ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Init vendor/aube submodule
+        run: git submodule update --init vendor/aube
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Build nub
+        run: cargo build -p nub-cli
+
+      - name: Install a real pnpm on PATH (for the registry-mock infra ONLY)
+        # The suite's registry mock launches verdaccio via a real `pnpm
+        # --use-node-version` — that is test INFRASTRUCTURE, separate from the
+        # commands under test (which the seam routes to nub). Pin it to PNPM_PIN.
+        run: |
+          npm install -g "pnpm@${PNPM_PIN}"
+          echo "real pnpm (registry infra): $(pnpm --version)"
+
+      - name: Run pnpm conformance suite against nub
+        env:
+          PNPM_CLONE_DIR: ${{ runner.temp }}/pnpm-conformance-clone
+          KEEP_CLONE: "1"
+        run: |
+          tests/pnpm-conformance/run.sh \
+            target/debug/nub \
+            "${PNPM_TAG}" \
+            ${{ github.event.inputs.jest_args }}
+
+      - name: Upload jest results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pnpm-conformance-results
+          path: ${{ runner.temp }}/pnpm-conformance-clone/nub-conformance-results.json
+          if-no-files-found: ignore
+          retention-days: 7
