@@ -165,6 +165,7 @@ const threads = readdirSync(FRAY_DIR)
       id,
       title: fm?.title ?? '',
       status: fm?.status ?? '?',
+      statusText: fm?.statusText ?? '',
       next,
       dependsOn,
       text: src,
@@ -216,6 +217,12 @@ for (const t of threads) {
   //     planned+decided, so a deliberately-held thread that SAYS why is exempt.
   if (t.status === 'planned' && t.decided && t.dependsOn.length === 0 && !t.nextDefers) {
     t.warnings.push('decided but not queued (active/enqueued?) — drop risk: `planned` + has Decisions, no depends_on, and Next step names no defer-reason/blocker');
+  }
+
+  // statusText is a 1-2 sentence English status note (frontmatter); flag overlong ones —
+  // anything past ~2 sentences belongs in the body, not the at-a-glance board field.
+  if (t.statusText && t.statusText.length > 280) {
+    t.warnings.push(`statusText is ${t.statusText.length} chars — keep it to 1-2 sentences; move detail into the body`);
   }
 
   // (2) An EMPTY `## Next step` on a non-terminal thread — the board's "→" cell goes
@@ -294,7 +301,9 @@ for (const s of showStatuses) {
   if (!group.length) continue;
   out.push(`\n## ${s} (${group.length})`);
   for (const t of group) {
-    out.push(`- ${t.id} — ${t.title}\n    → ${t.next}`);
+    out.push(`- ${t.id} — ${t.title}`);
+    if (t.statusText) out.push(`    » ${t.statusText}`);
+    out.push(`    → ${t.next}`);
     if (t.dependsOn.length) {
       const b = blockers(t);
       out.push(b.length

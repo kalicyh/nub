@@ -27,7 +27,7 @@ metadata:
 
 ## CANONICAL THREAD STRUCTURE (encode it exactly — it's the fix for the foot-guns)
 
-**Frontmatter** (flat `key: value`): `title`, `status` (required) · `last_update` · optional `depends_on: [slug, …]` (other-thread sequencing deps — drives the board's READY/blocked surfacing) · `decision` / `blocked_by` / `gates_release`. Unrecognized fields are allowed — the validator checks required `title`+`status`, the status vocab, and that every `depends_on` slug resolves to a real thread. **No `id`** (the slug is the id).
+**Frontmatter** (flat `key: value`): `title`, `status` (required) · `last_update` · optional `statusText` (a 1–2-sentence plain-English gloss of the CURRENT status — surfaced on the board under the thread as `» …`; use it for the nuance that a one-word `status` can't carry: a complex dependency, a "waiting on X because Y", a caveat that would otherwise get lost in the body; the board warns if it runs past ~2 sentences) · optional `depends_on: [slug, …]` (other-thread sequencing deps — drives the board's READY/blocked surfacing) · `decision` / `blocked_by` / `gates_release`. Unrecognized fields are allowed — the validator checks required `title`+`status`, the status vocab, and that every `depends_on` slug resolves to a real thread. **No `id`** (the slug is the id). Quote a `statusText` value that contains a leading `#` or `:` so the flat parser keeps it intact.
 
 **Body — exactly these sections, IN THIS ORDER:**
 
