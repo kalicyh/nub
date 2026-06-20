@@ -167,6 +167,20 @@ async function main() {
   const now = Date.now();
   const { last_fired, last_rest_surfaced } = readState();
 
+  // (C) AGENT-LIVENESS lines — idle/frozen/unreaped dispatched sub-agents. Computed
+  // once, fail-open ([] on any error). Appended to whichever reminder fires below,
+  // and emitted on their own (rate-limited) when neither guard would otherwise fire.
+  // Dynamic import so a missing/broken helper can never crash the hook before
+  // main()'s catch (a static import failure would).
+  let liveness = [];
+  try {
+    const { agentLivenessLines } = await import('./fray-agent-liveness.mjs');
+    liveness = agentLivenessLines({ transcriptPath: payload.transcript_path, projectDir: PROJECT_DIR, now });
+  } catch {
+    liveness = [];
+  }
+  const livenessBlock = liveness.length ? '\n\n⟦fray agent-liveness⟧\n' + liveness.join('\n') : '';
+
   // (A) REST-RECONCILIATION GUARD — highest priority, bypasses the cleanup cooldown.
   // Fire only on rests NEWER than the last surface, so each new rest forces exactly
   // one reconciliation prompt (loop-safe with Guard 1).
@@ -179,16 +193,26 @@ async function main() {
   const REST_COOLDOWN_MS = 600_000;
   if (newRests > 0 && (last_rest_surfaced === 0 || now - last_rest_surfaced > REST_COOLDOWN_MS)) {
     writeState({ last_rest_surfaced: now, last_fired: now });
-    process.stdout.write(JSON.stringify({ decision: 'block', reason: restReminder(newRests) }));
+    process.stdout.write(JSON.stringify({ decision: 'block', reason: restReminder(newRests) + livenessBlock }));
     process.exit(0);
   }
 
-  // (B) CLEANUP NUDGE — original behavior, rate-limited + activity-gated.
+  // (B) CLEANUP NUDGE — original behavior, rate-limited + activity-gated. The
+  // liveness lines piggyback on the same cooldown so they can't loop the orchestrator.
   if (last_fired > 0 && now - last_fired < cooldownSeconds * 1000) return allow();
-  if (last_fired > 0 && !threadTouchedSince(last_fired)) return allow();
+  if (last_fired > 0 && !threadTouchedSince(last_fired)) {
+    // No thread touched → no cleanup nudge. But idle/unreaped agents are still worth
+    // surfacing on their own (off the same cooldown above, which we already passed).
+    if (liveness.length) {
+      writeState({ last_fired: now });
+      process.stdout.write(JSON.stringify({ decision: 'block', reason: '⟦fray agent-liveness⟧\n' + liveness.join('\n') }));
+      process.exit(0);
+    }
+    return allow();
+  }
 
   writeState({ last_fired: now });
-  process.stdout.write(JSON.stringify({ decision: 'block', reason: CLEANUP_REMINDER }));
+  process.stdout.write(JSON.stringify({ decision: 'block', reason: CLEANUP_REMINDER + livenessBlock }));
   process.exit(0);
 }
 
