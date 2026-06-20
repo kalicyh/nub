@@ -2,6 +2,7 @@
   "title": "Documentation",
   "pages": [
     "index",
+    "replaces",
     "runtime",
     "watch",
     "run",
