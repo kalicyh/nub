@@ -49,7 +49,7 @@ If triage shows it's NOT a bug (working as intended, a usage question, a duplica
 
 ## Step 3 — Fix it (fray + the pre-push loop)
 
-For anything beyond a one-line fix, drive the work with the **fray methodology** (`.claude/skills/fray/SKILL.md`): you orchestrate, dispatch model-tiered sub-agents as instruments (Opus for the fix that lands, Sonnet for supporting work, Haiku for scripted harvest), and a substantive fix gets a SEPARATE self-review pass before it's marked done. Scale the review to the blast radius — a far-reaching change (registry/lockfile/config/security/default) gets a multi-lens reviewer fleet.
+For anything beyond a one-line fix, drive the work with the **fray methodology** (the globally-installed `fray` plugin skill — load it by name): you orchestrate, dispatch model-tiered sub-agents as instruments (Opus for the fix that lands, Sonnet for supporting work, Haiku for scripted harvest), and a substantive fix gets a SEPARATE self-review pass before it's marked done. Scale the review to the blast radius — a far-reaching change (registry/lockfile/config/security/default) gets a multi-lens reviewer fleet.
 
 Work in an isolated worktree off `origin/main` (AGENTS.md "Default to a PR flow"):
 
