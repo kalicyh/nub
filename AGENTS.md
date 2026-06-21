@@ -67,6 +67,17 @@ The rules around it:
 
 A busy `main` with several open PRs and in-progress worktrees is expected and fine.
 
+### Worktree dev loop — fast incremental builds + the real build/test incantations
+
+Full runbook + crate map: the `nub-dev` skill (`.claude/skills/nub-dev/SKILL.md`). The essentials, so a worktree iterates fast (measured 2026-06-20):
+
+- **Set up the worktree, init the submodule, give it its OWN target dir** (per the proven workflow above): `git worktree add … -b <slug> origin/main`, then `git -C … submodule update --init vendor/aube`, then `export CARGO_TARGET_DIR=/tmp/<slug>-target`. The per-worktree target dir is what keeps a sibling's build from contaminating yours — keep it.
+- **Iterate with the `fast` profile, NEVER `release`.** `cargo build -p nub-cli --profile fast` builds the dev CLI to `target/fast/nub`. Cold ≈ 3 min; every subsequent rebuild in the same target dir ≈ 5s via cargo's native incremental. The `release` profile's `lto=thin` + `codegen-units=1` makes a cold build ≈ 15 min and re-LTOs the whole binary on every change — do not use it to iterate. For the full dev binary + N-API addon on PATH, `make install-dev` (symlinks `nub-dev`/`nubx-dev` → `target/fast/nub`); for the addon alone, `make addon-fast`. There is no `nub build` command.
+- **Pay the cold build ONCE per worktree, then keep the target dir stable.** Do NOT clean, move, re-clone, or seed the target dir between iterations — cargo's incremental fingerprints are keyed to the absolute target path, so any of those forces a full ~3-min rebuild. The fast path is one stable target dir per worktree for the whole session.
+- **A shared cross-worktree compile cache does NOT help here.** sccache was measured against this Rust workspace and delivered a 0% Rust cache-hit rate across worktrees (rustc embeds per-target-dir paths in its cache keys; `--remap-path-prefix` does not fix it) — no speedup over a cold build. Do not reach for it; the `fast` profile + a stable per-worktree target dir is the whole answer.
+- **Tests:** a specific file is `cargo test -p nub-cli --test <file_stem>` (e.g. `--test pm_verbs`); a single test by name substring is `cargo test -p nub-cli <substring>` (`-- --exact <full::path>` pins one). Before pushing, run the [pre-push local verification loop](#implementation-quality-discipline) — the *exact* CI gates are `cargo clippy --all-targets --all-features -- -D warnings` and `cargo fmt --check`.
+- **Ad-hoc e2e probing** (build the dev `nub`, run your subcommand against a `/tmp` fixture, verify the effect, probe variants) is a valid way to verify new functionality — the `ad-hoc-test` skill (`.claude/skills/ad-hoc-test/SKILL.md`) has the loop. Promote durable checks into the suite per the pre-push loop.
+
 ## The repo is PUBLIC — never commit internal discussion (HIGH PRIORITY)
 
 `github.com/nubjs/nub` is a **public open-source repo with real stars**. Everything committed — code, comments, commit messages, `tests/**` READMEs, every tracked markdown file — is world-readable forever, and **survives in git history even after you delete it**. So: **never put internal product / marketing / competitive discussion or considerations into a tracked file.** Banned from anything git tracks:
