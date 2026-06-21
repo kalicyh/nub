@@ -420,6 +420,34 @@ jobs:
         run: node run.mjs
         working-directory: npm/nub-types/test
 
+  docs-links:
+    name: Docs links & anchors
+    needs: matrix-plan
+    # Path-gated on run_site (the same planner output that gates other site
+    # work): only runs when site/** changed. Skipped on Rust/types-only PRs —
+    # the ci-gate aggregator treats a skip as success.
+    if: needs.matrix-plan.outputs.run_site == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: site/pnpm-lock.yaml
+      # The checker slugifies headings with github-slugger (a transitive site
+      # dep) to match the rendered anchors exactly; install the site workspace
+      # so it resolves. --frozen-lockfile keeps it deterministic.
+      - name: Install site deps (for github-slugger)
+        run: pnpm install --frozen-lockfile
+        working-directory: site
+      # node 24 strips the script's erasable TS types natively — no build step.
+      - name: Validate internal docs links & anchors
+        run: node scripts/check-docs-links.ts
+
   # Single aggregator gate — the ONE check branch protection should require.
   #
   # Why this exists: the Rust jobs above are path-gated (`if:
@@ -437,7 +465,7 @@ jobs:
   ci-gate:
     name: CI gate
     if: always()
-    needs: [matrix-plan, check, clippy, test, pnp, fmt, types-fixtures]
+    needs: [matrix-plan, check, clippy, test, pnp, fmt, types-fixtures, docs-links]
     runs-on: ubuntu-latest
     steps:
       - name: Verify no required job failed or was cancelled
