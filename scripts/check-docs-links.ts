@@ -130,8 +130,17 @@ function headingSlugs(srcNoFences: string): Set<string> {
   for (const line of srcNoFences.split("\n")) {
     const m = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
     if (!m) continue;
-    const text = stripInlineCode(m[2]).trim();
-    slugs.add(slugger.slug(text));
+    let text = m[2];
+    // fumadocs custom heading id: `## Title [#custom-id]` — remark-heading
+    // strips the trailing `[#slug]` and uses it verbatim as the id (NOT
+    // slugified). Mirror that exactly (regex from fumadocs' remark-heading)
+    // so a `#custom-id` link validates and the shadowed auto-slug isn't used.
+    const custom = text.match(/\s*\[#(?<slug>[^\]]+?)\]\s*$/);
+    if (custom && custom.groups) {
+      slugs.add(custom.groups.slug);
+      continue;
+    }
+    slugs.add(slugger.slug(stripInlineCode(text).trim()));
   }
   return slugs;
 }
