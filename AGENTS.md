@@ -122,6 +122,15 @@ The thing that burns the budget is **ONE workflow fanning out 20+ parallel Opus 
 
 And tier EVERY agent by the model-selection guidelines (judgment / the-fix-that-lands → Opus; supporting cast / mechanical-but-not-trivial → Sonnet; fully-scripted harvest → Haiku) — choose per agent, every time.
 
+## Git & GitHub maintainer hygiene (HIGH PRIORITY)
+
+nubjs/nub is a public open-source project with real reporters and contributors watching. Maintainer responsiveness on issues and PRs is a visible signal of the project's health, so these are not optional courtesies — they are mandatory hygiene. The end-to-end issue playbook lives in the `address-issue` skill (`.claude/skills/address-issue/SKILL.md`); the rules below are the durable conventions it operationalizes. Every comment here follows the project's existing tone bar — factual, neutral, professional, never braggy or competitive (see [The repo is PUBLIC](#the-repo-is-public--never-commit-internal-discussion-high-priority) and the commit-message tone rule); these rules do not relax it.
+
+- **Acknowledge external issues the moment you start — with proper tone.** When you begin work on an EXTERNAL (non-maintainer) issue, post a brief "Investigating" (or similarly worded) comment so the reporter knows it's been seen and is being looked at. A short, sincere acknowledgement, never boilerplate or over-promising — state that you're looking into it, not when it'll be fixed. (Internal/self-filed issues don't need the acknowledgement.)
+- **Reference the associated issue(s) in every PR body.** A PR that resolves a bug uses a closing keyword — `Closes #123` / `Fixes #123` — so the merge auto-closes the issue; a PR that merely relates to an issue (touches the area, partial work, follow-up) uses `Refs #123`. Never land a fix-PR that leaves its issue unlinked.
+- **On EVERY release, comment the release link + version on ALL closed issues and merged PRs that shipped in it.** This is MANDATORY maintainer hygiene — always do it, no matter what. For each issue closed and each PR merged since the previous release tag, post a comment with the version it shipped in and a link to the release, e.g. `Shipped in v0.1.8: https://github.com/nubjs/nub/releases/tag/v0.1.8`. The fix being merged is not the same as it being on a published binary; this comment closes that gap for the reporter. (The `release` skill's Step 5 carries the concrete enumeration + commands.)
+- **Close issues with a brief factual comment — never silently.** Use `gh issue close <number> --comment <text>` (see the dedicated rule in [Workflow lifecycle](#workflow-lifecycle--never-kill-mid-edit-run-queues-as-a-continuous-series-high-priority) above), stating what fixed it or why no code fix is needed.
+
 ## fray (orchestrator-first, sub-agents as instruments) — a named methodology (HIGH PRIORITY)
 
 Full methodology: `.claude/skills/fray/SKILL.md`.

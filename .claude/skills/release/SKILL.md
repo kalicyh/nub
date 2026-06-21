@@ -7,8 +7,9 @@ description: >-
   0.0.x/0.1.x pre-release regime), `make version` + `make version-check`,
   commit + tag + push (the `v*` tag triggers the 8-platform CI build → npm OIDC
   publish → GitHub Release), then draft comprehensive FACTUAL + NEUTRAL release
-  notes from the full changeset and comment "landed in v<ver>" on every closed
-  issue + merged PR the release ships. Do NOT cut until all fixes are green.
+  notes from the full changeset and comment the version + release link on every
+  closed issue + merged PR the release ships (mandatory maintainer hygiene). Do
+  NOT cut until all fixes are green.
 ---
 
 # Cutting a nub release
@@ -129,9 +130,11 @@ gh release view v<ver> --repo nubjs/nub --json body -q .body   # verify it rende
 
 The v0.1.4 and v0.1.3 release bodies are the reference exemplars of this structure.
 
-## Step 5 — Close the loop on issues + PRs
+## Step 5 — Close the loop on issues + PRs (MANDATORY — always, no matter what)
 
-Comment a brief factual "landed in v<ver>" note on **every closed issue and merged PR that shipped in this release**. Users see "fixed" the moment an issue closes, but the fix is not on the released binary until the tag publishes — this comment closes that credibility gap.
+Comment a brief factual note carrying **the version and a link to the release** on **EVERY closed issue and EVERY merged PR that shipped in this release** — not just the headline fixes. This is mandatory maintainer hygiene (AGENTS.md "Git & GitHub maintainer hygiene"); do it on every release without exception. Users see "fixed" the moment an issue closes, but the fix is not on the released binary until the tag publishes — this comment closes that credibility gap and gives the reporter a link to the exact release.
+
+The release URL is `https://github.com/nubjs/nub/releases/tag/v<ver>`. Every comment includes both the version and that link, e.g. `Shipped in v<ver>: <release URL>`.
 
 Enumerate the targets from the changeset:
 
@@ -142,14 +145,15 @@ git log "$PREV"..HEAD --oneline --merges
 # and "(#<n>)" PR-merge suffixes, and cross-check the release thread's targeted-fix list.
 ```
 
-Then comment (short, factual — what fixed it, no fluff):
+Then comment (short, factual — what fixed it + the version and release link, no fluff):
 
 ```bash
-gh issue comment <n> --body "Fixed in v<ver> (now published)."
-gh pr comment <n> --body "Shipped in v<ver>."
+REL="https://github.com/nubjs/nub/releases/tag/v<ver>"
+gh issue comment <n> --body "Fixed in v<ver> (now published): $REL"
+gh pr comment <n>    --body "Shipped in v<ver>: $REL"
 ```
 
-At minimum, hit every issue the release thread lists as targeted (for v0.1.3 that was #15, #16, #18, the NODE_OPTIONS fix, …) plus any other issue/PR closed since `$PREV`. Do not comment on issues unrelated to the release.
+Hit **every** issue closed and **every** PR merged since `$PREV` — at minimum every issue the release thread lists as targeted (for v0.1.3 that was #15, #16, #18, the NODE_OPTIONS fix, …) plus any other issue/PR closed in the range. This is non-optional; do not skip an issue because it was "minor." Do not comment on issues unrelated to the release.
 
 ## Step 6 — Post-release verify
 
@@ -180,7 +184,7 @@ A complete release has: the 10 npm packages published (`@nubjs/nub`, `@nubjs/nub
 | Bump | `make version V=<ver>` → `make version-check` |
 | Cut | `git commit -m "v<ver>"` → `git tag v<ver>` → `git push origin main --tags` |
 | Notes | `gh release edit v<ver> --notes-file notes.md` |
-| Loop | `gh issue comment <n> --body "Fixed in v<ver> (now published)."` |
+| Loop | `gh issue comment <n> --body "Fixed in v<ver>: <release URL>"` (every closed issue + merged PR — mandatory) |
 | Verify | `npm view @nubjs/nub@<ver> version` · `gh release view v<ver> --json assets` |
 
 Invoked via the Skill tool once a release thread's targeted fixes are all landed on `main` and CI-green.
