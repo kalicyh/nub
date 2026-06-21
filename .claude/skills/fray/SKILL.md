@@ -80,6 +80,8 @@ Create a `.fray/<slug>.md` only when an effort is **genuinely multi-step / multi
 
 ## Write-ownership — the dispatched sub-agent OWNS its thread's edits
 
+**The full contract a dispatched sub-agent operates under lives in [`.github/subagent-guide.md`](../../../.github/subagent-guide.md)** — the canonical "what a dispatched agent must do" doc (final-message-is-the-handoff, thread ownership, push-then-exit, pre-push verification, landing discipline, report format, tone). The `agent-dispatch` hook links it into every dispatch and inlines the non-negotiables; the points below are the orchestrator-facing view of the same write-ownership rules.
+
 **The doing-agent edits its OWN dispatched thread `.md` directly** (`## Status` / `## Decisions` / `## Next step` / `## Steps`), because it has the full context on its effort and structurally best represents that thread's current truth. The orchestrator reconstructing a thread's status from a packaged summary is lossy — so the agent writes the state, the orchestrator does NOT re-transcribe it. *(This SUPERSEDES the old absolute rule "ONLY the orchestrator edits threads; sub-agents NEVER edit a thread file." That rule is gone — the doing-agent owns its thread doc now.)*
 
 The discipline the sub-agent follows when editing its thread:
