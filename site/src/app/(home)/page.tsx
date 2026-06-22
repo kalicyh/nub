@@ -635,6 +635,7 @@ const APIS: { name: string; label: string }[] = [
   { name: 'using / await using', label: 'Transpiled' },
   { name: 'node:sqlite', label: 'Unflagged < 23' },
   { name: 'vm.Module', label: 'Auto-unflagged' },
+  { name: 'ShadowRealm', label: 'Auto-unflagged' },
   { name: 'RegExp.escape', label: 'Polyfilled < 24' },
   { name: 'Promise.try', label: 'Polyfilled < 24' },
   { name: 'Float16Array', label: 'Polyfilled < 24' },

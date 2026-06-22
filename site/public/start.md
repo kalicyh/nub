@@ -78,7 +78,7 @@ You can start using nub for what you *run* right away — this changes nothing i
 | `npm install` / `pnpm install` / `bun install` | `nub install` | the existing lockfile is respected (see step 2) |
 | `npm add <pkg>` / `pnpm add <pkg>` | `nub add <pkg>` | also `nub remove` / `nub update` |
 | `nvm use` / installing a Node version | *(nothing)* | auto-provisioned (see step 2) |
-| plain, unaugmented Node | `nub --node <file>` | no transpile, no `.env`, no flag injection — vanilla Node on the project's pinned version |
+| plain, unaugmented Node | `nub --node <file>` | no transpile, no `.env`, no unflagging — vanilla Node on the project's pinned version |
 
 ## 4. Offer a migration investigation
 

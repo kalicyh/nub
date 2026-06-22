@@ -38,7 +38,7 @@ function installSyncPolyfills(preloaded) {
   // is a getter THROWING `ERR_INVALID_ARG_VALUE` on ANY access — even
   // `typeof localStorage` throws, so feature-detection is impossible and the throw
   // can surface before user code expects it. The spawn layer signals this case via
-  // the internal `__NUB_NEUTRALIZE_LOCALSTORAGE` env var (set iff flag-injected ∧
+  // the internal `__NUB_NEUTRALIZE_LOCALSTORAGE` env var (set iff unflagged ∧
   // no user file). Replace the throwing getter with a plain `undefined` value —
   // matching Node 25+'s clean shape — so `typeof localStorage === "undefined"` is
   // true and no throw occurs; `sessionStorage`, which needs only the flag, keeps

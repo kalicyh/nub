@@ -69,7 +69,7 @@ nub runs your code on **stock Node** and provisions the right version automatica
 
 ## `--node` escape hatch
 
-When you need strict, unaugmented Node for one run — no transpile, no `.env`, no polyfills, no flag injection — add `--node`:
+When you need strict, unaugmented Node for one run — no transpile, no `.env`, no polyfills, no unflagging — add `--node`:
 
 ```sh
 nub --node script.js     # top-level file run

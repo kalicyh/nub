@@ -139,7 +139,7 @@ echo 'console.log(1 + 1)' | nub -
 
 ## `--node`
 
-Pass `--node` to run with zero augmentation — no load hook, no preload, no flag injection, no `.env` loading. Your code runs on plain Node, exactly as `node <file>` would. It still runs the project's *pinned* Node (from `.node-version` / `.nvmrc`, fetched if missing), which makes it the tool for differential debugging — does this reproduce on vanilla Node, on the exact version this project pins? A bare `node script.js` can't answer that, because it runs your shell's Node, not the project's.
+Pass `--node` to run with zero augmentation — no load hook, no preload, no unflagging, no `.env` loading. Your code runs on plain Node, exactly as `node <file>` would. It still runs the project's *pinned* Node (from `.node-version` / `.nvmrc`, fetched if missing), which makes it the tool for differential debugging — does this reproduce on vanilla Node, on the exact version this project pins? A bare `node script.js` can't answer that, because it runs your shell's Node, not the project's.
 
 ```bash
 nub --node script.js     # the project's pinned Node, vanilla

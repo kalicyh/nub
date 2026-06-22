@@ -3,7 +3,7 @@
 //! This is the single auditable place where nub records, for every user-facing
 //! runtime feature, *how* it is made to "just work" across the supported Node
 //! range (18.19+) — and that record is **load-bearing**, not parallel
-//! documentation. The flag-injection logic in [`super::flags`] is *derived* from
+//! documentation. The unflagging logic in [`super::flags`] is *derived* from
 //! this table (it iterates [`FEATURES`]); the webstorage gating predicates are
 //! derived from it too. There is no second copy of the bands to drift against.
 //!
