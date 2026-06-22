@@ -749,11 +749,11 @@ function RunScriptBand() {
             visual={
               <Terminal
                 lines={[
-                  { cmd: 'nub -r --resume-from @org/api build', comment: 'resume from a package' },
-                  { cmd: 'nub -r --reporter=ndjson build', comment: 'machine-readable CI summary' },
-                  { cmd: 'nub -r --stream --reporter-hide-prefix build' },
-                  { cmd: 'nub -r --workspace-concurrency 4 build' },
-                  { cmd: 'nub -r --if-present test', comment: 'skip packages without it' },
+                  { cmd: 'nub run build', comment: 'plain script run' },
+                  { cmd: 'nub run test -- --coverage', comment: 'pass args through' },
+                  { cmd: 'nub -r --if-present lint', comment: 'skip packages without it' },
+                  { cmd: 'nub -r --parallel --no-bail test', comment: 'all at once, collect all results' },
+                  { cmd: 'nub -r --resume-from @org/api --stream build', comment: 'CI restart, streamed' },
                 ]}
               />
             }
