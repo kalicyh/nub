@@ -1,6 +1,22 @@
-# Nub
+<p align="center">
+  <img src="https://nubjs.com/icon.svg" width="120" alt="Nub logo" />
+</p>
 
-A fast all-in-one toolkit that *augments* Node.js instead of trying to replace it. It provides a Bun-like modern DX on top of stock `node`. Written in Rust.
+<h1 align="center">Nub</h1>
+
+<p align="center">
+  A fast all-in-one toolkit that <em>augments</em> Node.js instead of replacing it — a Bun-like DX on top of stock <code>node</code>, written in Rust.
+</p>
+
+<p align="center">
+  <a href="https://nubjs.com/docs">Docs</a>
+  &nbsp;•&nbsp;
+  <a href="https://nubjs.com">Website</a>
+  &nbsp;•&nbsp;
+  <a href="https://github.com/nubjs/nub">GitHub</a>
+</p>
+
+<br/>
 
 ```sh
 nub index.ts             # TypeScript-first Node.js runtime
@@ -14,7 +30,7 @@ nub upgrade              # self update
 ```
 
 
-It provides a Bun-like modern DX on top of stock `node`. One tool to run your files and scripts, install dependencies, and manage Node itself. No new runtime, no vendor-specific API surface, no lock-in.
+One tool to run your files and scripts, install dependencies, and manage Node itself. No new runtime, no vendor-specific API surface, no lock-in.
 
 | Nub | Instead of |
 |---|---|
@@ -25,8 +41,6 @@ It provides a Bun-like modern DX on top of stock `node`. One tool to run your fi
 | `nub watch` | `nodemon`, `node --watch`, `tsx watch` |
 | `nub node` | `nvm`, `fnm`, `n`, `volta` |
 | `nub pm` | `corepack` |
-
-**Documentation:** https://nubjs.com/docs
 
 <br/>
 
@@ -178,7 +192,7 @@ View the [full package runner docs 👉](https://nubjs.com/docs/nubx).
 
 ## Package manager — `nub install`
 
-Nub is a package manager powered by the [Aube](https://github.com/jdx/aube) engine. The CLI is 1:1 compatible with `pnpm` for muscle memory.
+Nub is a package manager powered by the [Aube](https://github.com/jdx/aube) engine. The CLI is flag-for-flag compatible with `pnpm` for muscle memory, but 
 
 ```sh
 nub install                    
@@ -189,7 +203,7 @@ nub update
 nub dedupe
 ```
 
-It's fast. 
+It's fast — avoids the per-command Node.js bootstrap lag incurred by JS-based package managers.
 
 | Tool | Time | Relative |
 |---|---|---|
@@ -199,6 +213,15 @@ It's fast.
 | `npm` | 4163 ms | 3.7× |
 
 > warm frozen install · create-t3-app · 222 deps · macOS — [view benchmark](https://github.com/nubjs/nub/tree/main/tests/bench/install)
+
+### Security
+
+- 🛡️ Blocks postinstall by default
+- 🦠 Checks [osv.dev](https://osv.dev) for known-malicious package versions during resolution by default
+- 🔻 Refuses provenance downgrades by default
+- ⏳ 24-hour `minimumReleaseAge` by default
+
+### Compatibility
 
 When you run `nub install` inside a project, it detects the *incumbent* package manager (based on your `package.json#packageManager` or any detected lockfiles). It then runs in **compat-mode**, respecting the config files and environment variables for that package manager.
 
@@ -212,18 +235,7 @@ Under each incumbent, Nub reads that tool's branded config and no other's; the n
 | **Bun** | `bun.lock`, `bunfig.toml` `[install]`, `trustedDependencies`, `overrides`, `patchedDependencies`, `catalog:`, `.npmrc` |
 | **Nub** | neutral only — `.npmrc`, `npm_config_*`, `overrides` / `resolutions` / `catalog` / `workspaces` |
 
-See [Package manager](https://nubjs.com/docs/install#config-it-reads) for the per-incumbent breakdown.
-
-
-- ⚡ Faster than Bun (warm install)
-- 🔄 Read _and writes_ your existing lockfile
-- 🗄️ Global content-addressed store
-- 🐍 Fully `pnpm`-compatible CLI
-- 🛡️ Blocks postinstall by default
-- 🦠 Checks [osv.dev](https://osv.dev) for known-malicious package versions during resolution by default
-- 🔻 Refuses provenance downgrades by default
-- ⏳ 24-hour `minimumReleaseAge` by default
-
+See [Package manager](https://nubjs.com/docs/install#config-it-reads) for the full docs and granular compatibility info.
 
 <br/>
 
