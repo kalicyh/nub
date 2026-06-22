@@ -630,6 +630,53 @@ fn node_which_prints_path_to_stdout() {
 }
 
 #[test]
+fn bare_node_prints_status_then_help() {
+    // Bare `nub node` is a command group: it ALWAYS prints the verb listing, and
+    // PREPENDS the resolved-Node status block WHEN a Node resolves. The status
+    // block is environment-dependent — on a clean machine whose only Node is
+    // below the project's `engines.node` floor (the CI compat-tier legs), nothing
+    // resolves and bare `nub node` degrades to help-only. So this test asserts
+    // the stable contract (verb listing always present; exit 0) plus the
+    // status-THEN-help ordering invariant only when the status block appears.
+    let bare = Command::new(nub_binary())
+        .arg("node")
+        .output()
+        .expect("failed to spawn nub node");
+    let bare_stdout = String::from_utf8_lossy(&bare.stdout);
+    assert_eq!(bare.status.code(), Some(0), "bare `nub node` exits cleanly");
+    // The verb listing is the environment-independent part — always present.
+    assert!(
+        bare_stdout.contains("Commands:") && bare_stdout.contains("which"),
+        "bare `nub node` always prints the verb listing: {bare_stdout}"
+    );
+    // The status block is keyed on the block-specific `  path  ` prefix (the
+    // verb listing's `resolved` substring appears in a command description). When
+    // present, it must come BEFORE the help — status THEN help.
+    if let Some(path_idx) = bare_stdout.find("\n  path  ") {
+        let help_idx = bare_stdout.find("Commands:").expect("verb listing present");
+        assert!(
+            path_idx < help_idx,
+            "status block must precede the help text: {bare_stdout}"
+        );
+    }
+
+    let help = Command::new(nub_binary())
+        .args(["node", "-h"])
+        .output()
+        .expect("failed to spawn nub node -h");
+    let help_stdout = String::from_utf8_lossy(&help.stdout);
+    assert_eq!(help.status.code(), Some(0), "`nub node -h` exits cleanly");
+    assert!(
+        help_stdout.contains("Commands:") && help_stdout.contains("which"),
+        "`nub node -h` prints the verb listing: {help_stdout}"
+    );
+    assert!(
+        !help_stdout.contains("\n  path  ") && !help_stdout.starts_with("node "),
+        "`nub node -h` prints help only, no status block: {help_stdout}"
+    );
+}
+
+#[test]
 fn top_level_short_and_long_help_are_distinct() {
     let short = Command::new(nub_binary())
         .arg("-h")
