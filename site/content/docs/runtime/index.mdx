@@ -1,58 +1,33 @@
 ---
 title: Runtime
-description: What Nub adds when it runs your code on stock Node — TypeScript, resolution, env loading, data imports, and modern globals — and the plain-Node escape hatch that turns it all off.
+description: What Nub adds when it runs your code on stock Node — TypeScript and JSX with no build step, editor-style resolution, automatic .env loading, data-file imports, and modern globals — plus the plain-Node escape hatch that turns it all off.
 ---
 
-The top-level `nub <file>` command runs a file on the `node` you already have installed. It is a true drop-in for `node <file>` — same argv shape, same flag set, same behavior — and on top of that it augments the runtime: TypeScript and JSX execute directly, imports resolve the way your editor resolves them, `.env*` files load automatically, data files import as parsed values, and modern web/TC39 globals are present even on older Node.
+Run a TypeScript file directly — no tsconfig, no build step, no `ts-node`:
 
-Nub registers a `module.registerHooks()` load hook and injects a small preload. Every augmentation rides on Node's own extension surfaces.
-
-```bash
+```sh
 nub index.ts
 nub server.tsx
 nub script.js
 ```
 
+On top of stock Node, `nub <file>` adds a modern runtime:
+
+- 🦆 Full TypeScript — non-erasable syntax (`enum`, `namespace`, parameter properties), `emitDecoratorMetadata` decorators
+- ⚛️ JSX / TSX — the automatic runtime by default
+- 🧭 Editor-style resolution — extensionless imports, `.js → .ts` rewriting, `tsconfig.json#paths`
+- 🆕 Modern syntax like `using` — transpiler-downleveled on older Node
+- 🔐 Automatic `.env*` loading — Next.js / Vite parity, with `${VAR}` expansion
+- 🗂️ Data-file imports — `.yaml`, `.toml`, `.jsonc`, `.json5`, `.txt` as parsed default exports
+- 🌐 Modern globals backfilled per Node version — `Temporal`, `URLPattern`, `WebSocket`, `EventSource`, `node:sqlite`, and more
+- 🧵 Source maps in stack traces, automatically
+- ⚡ ~2.9× faster startup than `tsx`
+
+And it's a true drop-in for `node`: same argv shape, same flag set, same behavior — every flag reaches Node verbatim. No vendor-specific API surface, no lock-in. Pass `--node` (or set `NODE_COMPAT=1`) to turn every augmentation off and run on plain Node.
+
 <Callout title="Supported Node versions">
 Nub runs your code on stock Node — it resolves which Node your project pins and fetches one if it's missing, but never ships a runtime of its own. The supported floor is **Node 18.19+**; below that Nub refuses to run. Node 18.19–22.14 use the compatibility tier (async `module.register()` loader-worker) and 22.15+ use the fast path (sync `module.registerHooks()`) — functionally equivalent, differing only in startup overhead. See [Managing Node versions](/docs/node) for pinning and pre-installing.
 </Callout>
-
-## Node version resolution
-
-Nub resolves the project's pinned Node before running anything, walking up from the working directory and taking the first source that yields a version. Highest precedence first:
-
-- `NODE_EXECUTABLE` — an explicit path to a Node binary
-- `package.json` → `devEngines.runtime`
-- `.node-version`
-- `.nvmrc`
-- `package.json` → `engines.node` (a range)
-- the `node` on your `PATH`, when nothing is pinned
-
-When a pinned version isn't installed, Nub fetches it — see [Managing Node versions](/docs/node).
-
-## A drop-in for `node`
-
-Anything `node <args>` accepts, `nub <args>` accepts too. Pass-through is the default for the entire flag space — every flag reaches Node verbatim:
-
-```bash
-# diagnostics
---prof  --cpu-prof  --report-*
-# module resolution
---conditions  --preserve-symlinks
-# inspector
---inspect  --inspect-brk
-# warnings
---no-warnings  --trace-deprecation
-```
-
-Reading a program from stdin works the same way `node -` does.
-
-```bash
-nub --max-old-space-size=4096 build.ts
-nub --import ./instrument.js server.ts
-nub script.ts --port 3000 --verbose   # everything after the file is your script's argv
-echo 'console.log(1 + 1)' | nub -
-```
 
 ## Augmentations
 
@@ -86,21 +61,21 @@ The **minimum version** column is the lowest Node where the API works under Nub.
 
 | API | Minimum version | How |
 |---|---|---|
-| [`Temporal`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal) | — | polyfill below Node 26, native above |
-| [`URLPattern`](https://developer.mozilla.org/en-US/docs/Web/API/URLPattern) | — | polyfill below Node 24, native above |
-| [`RegExp.escape`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/escape) | — | polyfill below Node 24, native above |
-| [`Error.isError`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error/isError) | — | polyfill below Node 24, native above |
-| [`Promise.try`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/try) | — | polyfill below Node 24, native above |
-| [`Float16Array`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Float16Array) | — | polyfill below Node 24, native above |
-| [`navigator.locks`](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API) | — | polyfill below Node 24.5, native above |
-| [`reportError`](https://developer.mozilla.org/en-US/docs/Web/API/Window/reportError) | — | polyfill |
-| [`vm.Module`](https://nodejs.org/api/vm.html#class-vmmodule) | — | flag-injected |
-| [`ShadowRealm`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ShadowRealm) | — | flag-injected |
-| [`Wasm module imports`](https://nodejs.org/api/esm.html#wasm-modules) | — | flag-injected below Node 24.5 (22.19 on the 22.x line), native above |
-| [`WebSocket`](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket) | Node 20.10 | flag-injected below Node 22, native above |
-| [`EventSource`](https://developer.mozilla.org/en-US/docs/Web/API/EventSource) | Node 20.18 | flag-injected below the native line, native above |
-| [`node:sqlite`](https://nodejs.org/api/sqlite.html) | Node 22.5 | flag-injected below Node 22.13, native above |
-| [`addon imports`](https://nodejs.org/api/esm.html#node-addons) | Node 22.20 | flag-injected, never native |
+| [`Temporal`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal) | — | polyfilled below Node 26, native above |
+| [`URLPattern`](https://developer.mozilla.org/en-US/docs/Web/API/URLPattern) | — | polyfilled below Node 24, native above |
+| [`RegExp.escape`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/escape) | — | polyfilled below Node 24, native above |
+| [`Error.isError`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error/isError) | — | polyfilled below Node 24, native above |
+| [`Promise.try`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/try) | — | polyfilled below Node 24, native above |
+| [`Float16Array`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Float16Array) | — | polyfilled below Node 24, native above |
+| [`navigator.locks`](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API) | — | polyfilled below Node 24.5, native above |
+| [`reportError`](https://developer.mozilla.org/en-US/docs/Web/API/Window/reportError) | — | polyfilled |
+| [`vm.Module`](https://nodejs.org/api/vm.html#class-vmmodule) | — | unflagged |
+| [`ShadowRealm`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ShadowRealm) | — | unflagged |
+| [`Wasm module imports`](https://nodejs.org/api/esm.html#wasm-modules) | — | unflagged below Node 24.5 (22.19 on the 22.x line), native above |
+| [`WebSocket`](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket) | Node 20.10 | unflagged below Node 22, native above |
+| [`EventSource`](https://developer.mozilla.org/en-US/docs/Web/API/EventSource) | Node 20.18 | unflagged below the native line, native above |
+| [`node:sqlite`](https://nodejs.org/api/sqlite.html) | Node 22.5 | unflagged below Node 22.13, native above |
+| [`addon imports`](https://nodejs.org/api/esm.html#node-addons) | Node 22.20 | unflagged, never native |
 
 A dash means the API works across the full supported range, 18.19 and up. The floored rows have a real cutoff, because the underlying Node mechanism doesn't exist below it:
 
@@ -108,6 +83,59 @@ A dash means the API works across the full supported range, 18.19 and up. The fl
 - The `EventSource` global needs Node 20.18, the patch where Node added the flag on the 20 LTS line.
 - The `node:sqlite` module needs Node 22.5, where Node first shipped it.
 - Importing a native `.node` addon from an ES module needs Node 22.20 (or 23.6 on the 23 line), where Node added the flag Nub injects. It is never native — Node keeps the import behind the flag — so Nub injects it on every version that has it.
+
+## Node version resolution
+
+Like Corepack's shims, `nub` itself auto-installs Node versions as needed. When you run a file with `nub`, it infers the version of Node your project expects and provisions it — downloading and caching the matching stock build if it isn't already on your machine. The inference walks up from the working directory to the nearest pin, taking the first source that yields a version. Highest precedence first:
+
+- `NODE_EXECUTABLE` — an explicit path to a Node binary (a hard override)
+- `package.json` → `devEngines.runtime`
+- `.node-version`
+- `.nvmrc`
+- `package.json` → `engines.node` (a range)
+- the `node` on your `PATH`, when nothing is pinned
+
+This resolved Node version is auto-installed and cached for future runs.
+
+```sh
+$ echo 22 > .node-version
+$ nub hello.ts
+Using Node.js 22.15.0 (resolved from .node-version)
+Installed in 9.8s
+Hello world!
+```
+
+A few precision details the common case never makes you think about:
+
+- Discovery walks **up** the directory tree to the nearest pin, and **skips** pin files that live inside an installed dependency (under `node_modules`) — a dependency's own CI pin never drives your project.
+- The `package.json` fields (`devEngines.runtime`, `engines.node`) are read from the **workspace root** manifest when one exists above you — a monorepo pins its Node once at the root.
+- Once a version is pinned, Nub finds a binary for it in order: the `node` on `PATH` (so `fnm` / `Volta` / `mise` auto-switching just works) → Nub's own download store (`~/.cache/nub/node/<version>/`) → an `nvm`-installed version → download the matching stock build from nodejs.org, SHA-256 verified and cached.
+
+For pinning, pre-installing, and the `nub node` subcommands, see [Managing Node versions](/docs/node).
+
+## A drop-in for `node`
+
+Anything `node <args>` accepts, `nub <args>` accepts too. Pass-through is the default for the entire flag space — every flag reaches Node verbatim:
+
+```bash
+# diagnostics
+--prof  --cpu-prof  --report-*
+# module resolution
+--conditions  --preserve-symlinks
+# inspector
+--inspect  --inspect-brk
+# warnings
+--no-warnings  --trace-deprecation
+```
+
+Reading a program from stdin works the same way `node -` does.
+
+```bash
+nub --max-old-space-size=4096 build.ts
+nub --import ./instrument.js server.ts
+nub script.ts --port 3000 --verbose   # everything after the file is your script's argv
+echo 'console.log(1 + 1)' | nub -
+```
 
 ## `--node`
 
@@ -117,3 +145,18 @@ Pass `--node` to run with zero augmentation — no load hook, no preload, no fla
 nub --node script.js     # the project's pinned Node, vanilla
 node script.js           # your shell's Node, unaugmented, unprovisioned
 ```
+
+### `NODE_COMPAT`
+
+Setting a truthy `NODE_COMPAT` (`1`, `true`, or `yes`, case-insensitive) is the project/tree-wide form of `--node`. It has the identical effect — zero augmentation, Node-version provisioning still on — but it's **persistent and inherited** by every descendant `node` / `nub` in the tree, so you don't repeat `--node` per invocation:
+
+```bash
+export NODE_COMPAT=1     # every nub/node in this shell now runs vanilla
+nub script.ts            # plain Node, still on the project's pinned version
+```
+
+A `--node` flag and `NODE_COMPAT` compose — either one forces compatibility mode.
+
+## How it works
+
+Every augmentation rides on Node's own extension surfaces — Nub patches nothing and ships no runtime of its own. It registers a `module.registerHooks()` load hook (an async `module.register()` loader-worker on the compatibility tier) for transpilation and resolution, and injects a small `--import` preload for the globals and `.env` loading. On the fast tier, transpilation runs through an embedded [oxc](https://oxc.rs) N-API addon. The test for any augmentation is whether a user on plain Node, plus the corresponding `module.register()` / `--import` / npm addon, would get the same result — which is exactly what `--node` and `NODE_COMPAT` turn back off.
