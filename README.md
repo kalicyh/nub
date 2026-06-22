@@ -1,8 +1,34 @@
 # Nub
 
-An all-in-one toolkit for Node.js. One Rust binary to run your files and scripts, install dependencies, and manage Node itself — a Bun-like modern DX on top of the `node` you already have. There's no new runtime to adopt and no lock-in: every augmentation rides on Node's own public extension surfaces.
+A fast all-in-one toolkit that *augments* Node.js instead of trying to replace it. It provides a Bun-like modern DX on top of stock `node`. Written in Rust.
+
+```sh
+nub index.ts             # TypeScript-first Node.js runtime
+nub run dev              # 24× faster pnpm run
+nubx prisma generate     # 19× faster npx
+nub install              # 2.5× faster pnpm install
+nub watch src/server.ts  # native watch mode
+nub pm shim              # built-in Corepack-style shims
+nub node install 22      # Node version manager
+nub upgrade              # self update
+```
+
+
+It provides a Bun-like modern DX on top of stock `node`. One tool to run your files and scripts, install dependencies, and manage Node itself. No new runtime, no vendor-specific API surface, no lock-in.
+
+| Nub | Instead of |
+|---|---|
+| `nub <file>` | `node`, `tsx`, `ts-node`, `dotenv-cli` |
+| `nub run <script>` | `npm run`, `pnpm run` |
+| `nubx` | `npx`, `pnpm dlx / exec` |
+| `nub install` | `npm`, `pnpm` |
+| `nub watch` | `nodemon`, `node --watch`, `tsx watch` |
+| `nub node` | `nvm`, `fnm`, `n`, `volta` |
+| `nub pm` | `corepack` |
 
 **Documentation:** https://nubjs.com/docs
+
+## Install
 
 ```sh
 # macOS / Linux
@@ -15,44 +41,14 @@ irm https://nubjs.com/install.ps1 | iex
 npm install -g --ignore-scripts=false @nubjs/nub
 ```
 
-That puts `nub` and `nubx` on your `PATH`.
-
-For GitHub Actions, use [`nubjs/setup-nub`](https://github.com/nubjs/setup-nub) in place of `actions/setup-node`:
+For GitHub Actions, use [`nubjs/setup-nub`](https://github.com/nubjs/setup-nub) in place of `actions/setup-node`. It's one-to-one compatible.
 
 ```diff
 - - uses: actions/setup-node@v4
 + - uses: nubjs/setup-nub@v0
 ```
 
-It installs Nub, can pre-provision the project's Node, and can cache Nub's store.
-
-## Quickstart
-
-```sh
-nub index.ts             # run a TypeScript file on stock Node
-nub run dev              # run a package.json script (~24× faster than pnpm run)
-nubx prisma generate     # run a CLI from node_modules/.bin (~19× faster than npx)
-nub install              # install dependencies (pnpm-shaped, lockfile-compatible)
-nub watch src/server.ts  # restart on file changes
-nub pm shim              # route bare npm/pnpm/yarn through the project's pin
-nub node install 22      # provision a Node version
-```
-
-## What Nub replaces
-
-| Nub | Instead of |
-|---|---|
-| `nub <file>` | `node`, `tsx`, `ts-node`, `dotenv-cli` |
-| `nub run <script>` | `npm run`, `pnpm run`, `yarn run` |
-| `nubx` | `npx`, `pnpm dlx`, `pnpm exec`, `yarn dlx` |
-| `nub install` | `npm`, `pnpm`, `yarn` |
-| `nub watch` | `nodemon`, `node --watch`, `tsx watch` |
-| `nub node` | `nvm`, `fnm`, `n`, `volta` |
-| `nub pm` | `corepack` |
-
-## The toolkit
-
-### File runner — `nub <file>`
+## File runner — `nub <file>`
 
 A flag-for-flag drop-in for `node <file>` that also runs TypeScript and JSX directly — no tsconfig, no build step. A `.ts` file starts on par with plain `node`:
 
@@ -61,72 +57,117 @@ nub index.ts             # TypeScript, JSX, no build step
 nub --watch app.ts       # same path, restart-on-change
 ```
 
-```ts
-import config from "./config.yaml";  // .yaml, .toml, .jsonc, .json5, .txt — parsed default import
+- 🦆 Full TypeScript support — non-erasable syntax (`enum`, `namespace`, parameter properties), `emitDecoratorMetadata` decorators
+- ⚛️ JSX / TSX
+- 🧭 TypeScript-friendly resolution — extensionless imports, remaps `.js → .ts`, `tsconfig.json#paths`
+- 🆕 Modern syntax like `using` — transpiler-downleveled on earlier versions of Node
+- 🔐 Automatic `.env*` loading — Next.js/Vite parity
+- 🗂️ Built-in loaders for common data formats — `.yaml`, `.toml`, `.jsonc`, `.json5`, `.txt`
+- 🌐 Polyfills for missing APIs — `Temporal`, `Worker`, `URLPattern`, `WebSocket`, `EventSource` (these are mostly supported natively on recent versions of Node.js)
+- 🔥 Unflagged experimental features — `node:sqlite`, `vm.Module`, `localStorage`
+- ⚡ 2.9× faster startup than `tsx`
+
+### Watch mode
+
+Restart-on-change driven by the resolved dependency graph plus the off-graph files that still invalidate a run — no glob list to maintain:
+
+```sh
+nub watch src/server.ts
+nub --watch src/server.ts   # same path
 ```
 
-- 📦 Runs the full TS surface — non-erasable syntax (`enum`, `namespace`, parameter properties) and legacy decorators with `emitDecoratorMetadata`.
-- 🧭 Resolves imports the way your editor does — extensionless, `.js → .ts`, tsconfig `paths`.
-- 🔐 Loads `.env*` automatically with `${VAR}` expansion.
-- 🗂️ Imports data files as parsed values — `.yaml`, `.toml`, `.jsonc`, `.json5`, `.txt`.
-- 🌐 Backfills modern globals per Node-version band — `Temporal`, `URLPattern`, `WebSocket`, `EventSource`, `node:sqlite`, Web Workers.
-- 🗺️ Surfaces source maps in error traces.
-- ⚡ Starts about 2.9× faster than `tsx`, which loads esbuild and its loader hooks on every run.
+- 👀 Tracks the resolved dependency graph automatically
+- 🧷 Also watches the off-graph invalidators — `.env*`, the `tsconfig.json` extends chain, `package.json`
+- ⚙️ Runs on Node's own `--watch` engine, preserving output by default
 
-See [Runtime](https://nubjs.com/docs/runtime).
+View the [full watch mode docs 👉](https://nubjs.com/docs/watch).
 
-### Script runner — `nub run`
+### Modern APIs
+
+Modern globals — TC39, web-platform, and newer Node built-ins — work out of the box under Nub, native where Node ships them and polyfilled or unflagged where it doesn't. The **minimum version** column is the lowest Node where the API works under Nub; a dash means the full supported range, 18.19 and up.
+
+| API | Minimum version | How |
+|---|---|---|
+| [`Temporal`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal) | — | polyfill below Node 26, native above |
+| [`URLPattern`](https://developer.mozilla.org/en-US/docs/Web/API/URLPattern) | — | polyfill below Node 24, native above |
+| [`RegExp.escape`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/escape) | — | polyfill below Node 24, native above |
+| [`Error.isError`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error/isError) | — | polyfill below Node 24, native above |
+| [`Promise.try`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/try) | — | polyfill below Node 24, native above |
+| [`Float16Array`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Float16Array) | — | polyfill below Node 24, native above |
+| [`navigator.locks`](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API) | — | polyfill below Node 24.5, native above |
+| [`reportError`](https://developer.mozilla.org/en-US/docs/Web/API/Window/reportError) | — | polyfill |
+| [`vm.Module`](https://nodejs.org/api/vm.html#class-vmmodule) | — | flag-injected |
+| [`ShadowRealm`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ShadowRealm) | — | flag-injected |
+| [`Wasm module imports`](https://nodejs.org/api/esm.html#wasm-modules) | — | flag-injected below Node 24.5 (22.19 on the 22.x line), native above |
+| [`WebSocket`](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket) | Node 20.10 | flag-injected below Node 22, native above |
+| [`EventSource`](https://developer.mozilla.org/en-US/docs/Web/API/EventSource) | Node 20.18 | flag-injected below the native line, native above |
+| [`node:sqlite`](https://nodejs.org/api/sqlite.html) | Node 22.5 | flag-injected below Node 22.13, native above |
+| [`addon imports`](https://nodejs.org/api/esm.html#node-addons) | Node 22.20 | flag-injected, never native |
+
+### How it works
+
+> [!NOTE]
+> Nub takes advantage of Node extension surfaces that mostly didn't exist when Deno and Bun were built: 
+> 
+> - [`--import`](https://nodejs.org/api/cli.html#--importmodule)/[`--require`](https://nodejs.org/api/cli.html#-r---require-module) preloads
+> - [`module.registerHooks()`](https://nodejs.org/api/module.html#moduleregisterhooksoptions) for transpilation and resolution 
+> - [N-API native addons](https://nodejs.org/api/n-api.html): Nub embeds [oxc](https://oxc.rs/) for pre-transpilation
+
+View the [full runtime docs  👉](https://nubjs.com/docs/runtime).
+
+## Script runner — `nub run`
 
 A drop-in for `npm run` and `pnpm run`. The runner is a Rust binary with no JavaScript startup of its own, so it dispatches a warm script roughly 24× faster than `pnpm run`:
 
 ```sh
 nub run build
-nub run -r --filter "@org/*" test     # pnpm's filter grammar, verbatim
+nub run -r --filter "@org/*" test     # supports --filter
 ```
 
-```
-script dispatch · warm · 50 runs · macOS
-nub run     14.7 ms
-node --run  32.2 ms   (2.2×)
-npm run     329.9 ms  (22×)
-pnpm run    442.7 ms  (30×)
-```
+| Command | Time | Relative |
+|---|---|---|
+| `nub run` | 14.7 ms | — |
+| `npm run` | 329.9 ms | 22× |
+| `pnpm run` | 442.7 ms | 30× |
 
-- 🚀 Dispatches a warm script in ~14.7 ms — roughly 24× faster than `pnpm run`.
-- 🔁 Runs lifecycle `pre`/`post` hooks and exposes the full `npm_*` environment.
-- 🧰 Puts `node_modules/.bin` on `PATH` and forwards args without the `--` separator.
-- 🗃️ Preserves the pnpm workspace surface — `-r` / `--recursive`, `--filter`, `--parallel`, `--workspace-concurrency`, `--resume-from`, `--stream`.
-- 🎯 Reads `--filter` with pnpm's grammar verbatim, including graph (`...@org/web`) and changed-since (`[main]`) selectors.
+> script dispatch · warm · 50 runs · macOS — [View benchmark](https://github.com/nubjs/nub/tree/main/tests/bench/script-runner)
 
-See [Script runner](https://nubjs.com/docs/run).
+- 🚀 Dispatches a warm script ~30× faster than `pnpm run`
+- 🔁 Full lifecycle support — `pre`/`post` hooks and the complete `npm_*` environment
+- 🧰 Local `node_modules/.bin` on `PATH`, with args forwarded without the `--` separator
+- 🗃️ The full pnpm workspace surface — `-r`, `--filter`, `--parallel`, `--workspace-concurrency`, `--resume-from`, `--stream`
+- 🎯 pnpm's `--filter` grammar verbatim — graph (`...@org/web`) and changed-since (`[main]`) selectors
 
-### Package runner — `nubx` / `nub dlx`
+View the [full script runner docs 👉](https://nubjs.com/docs/run).
 
-A drop-in for `npx` and `pnpm dlx`, local-first with a registry fallback. It resolves `node_modules/.bin` in Rust and execs the binary directly, so the per-call Node bootstrap that `npx` pays disappears:
+## Package runner — `nubx` / `nub dlx`
+
+A drop-in for `npx` and `pnpm dlx`. Local-first with a download-and-execute registry fallback (same as `npx`). Eliminating the double-Node.js-spawn performance penalty paid by JavaScript-based tools like `npx` and `pnpm`.
 
 ```sh
 nubx eslint . --fix
-nubx cowsay@1.5.0 "hi"   # fetched from the registry, then discarded
+nubx -y cowsay@1.5.0 "hi"   # fetched from the registry (auto-approved via -y)
 ```
 
-```
-esbuild --version · macOS
-nubx esbuild --version        11 ms
-pnpm exec esbuild --version   191 ms  (17×)
-npx esbuild --version         226 ms  (19×)
-```
+| Command | Time | Relative |
+|---|---|---|
+| `nubx esbuild --version` | 11 ms | — |
+| `pnpm exec esbuild --version` | 191 ms | 17× |
+| `npx esbuild --version` | 226 ms | 19× |
 
-- ⚡ Runs a local CLI in ~11 ms — about 19× lighter than `npx`, with no Node process in the wrapper.
-- 🔎 Resolves `node_modules/.bin` regardless of which package manager installed it.
-- 🌐 Fetches and runs an uninstalled bin from the registry, then discards it.
-- 🧩 Matches `pnpm exec` / `pnpm dlx` flags, shell mode included.
-- 🪜 Walks the resolution chain — member `.bin` first, then the workspace root, then ancestors.
+> esbuild --version · macOS — [View benchmark](https://github.com/nubjs/nub/tree/main/tests/bench/bin-runner)
 
-See [Package runner](https://nubjs.com/docs/nubx).
+- ⚡ Runs a local bin ~19× faster than `npx`, with no Node in the wrapper
+- 🔎 Resolves `node_modules/.bin` regardless of which package manager installed it
+- 🌐 Registry fallback for uninstalled bins — fetched, run, then discarded
+- 🧩 Full `pnpm exec` / `pnpm dlx` flag parity, shell mode included
+- 🪜 Walks the resolution chain — member `.bin`, then workspace root, then ancestors
 
-### Package manager — `nub install`
+View the [full package runner docs 👉](https://nubjs.com/docs/nubx).
 
-Nub has its own pnpm-shaped install engine (the vendored [aube](https://github.com/jdx/aube) engine, embedded as a library). The CLI follows pnpm's spellings; the lockfile stays in your project's native format, which Nub infers and mirrors:
+## Package manager — `nub install`
+
+Nub is a package manager powered by the [Aube](https://github.com/jdx/aube) engine. The CLI is 1:1 compatible with `pnpm` foro muscle memory. 
 
 ```sh
 nub install                    # alias: nub i  ·  also: nub ci, --frozen-lockfile
@@ -137,27 +178,28 @@ nub dedupe
 nub import                     # convert another lockfile in place
 ```
 
-```
-warm frozen install · create-t3-app · 222 deps · macOS
-nub    1122 ms
-bun    1444 ms   (29% slower)
-pnpm   2847 ms   (2.5×)
-npm    4163 ms   (3.7×)
-```
+| Tool | Time | Relative |
+|---|---|---|
+| `nub` | 1122 ms | — |
+| `bun` | 1444 ms | 29% slower |
+| `pnpm` | 2847 ms | 2.5× |
+| `npm` | 4163 ms | 3.7× |
 
-- ⚡ Installs create-t3-app (222 deps) warm + frozen in ~1.1 s.
-- 🔄 Round-trips your existing lockfile — npm, pnpm, and Bun in place; Yarn read-only.
-- 🧠 Infers the incumbent package manager and mirrors it — no migration, no prompt.
-- 🗄️ Dedupes through a global content-addressed store and materializes by reflink/hardlink.
-- 🐍 Accepts pnpm's flags with the same spelling and semantics, down to the workspace catalog.
-- 🛡️ Treats dependency build scripts as deny-by-default — a script runs only on an explicit allow or a vetted default-trust floor.
-- 🦠 Queries OSV for malicious-package (`MAL-*`) advisories on every fresh resolve and hard-blocks a confirmed hit (`ERR_NUB_MALICIOUS_PACKAGE`).
-- 🔻 Refuses a version whose publish trust evidence weakened against an earlier release (`trustPolicy=no-downgrade`, `ERR_NUB_TRUST_DOWNGRADE`).
-- ⏳ Holds back releases younger than `minimumReleaseAge` (24h by default, matching pnpm), so a freshly-compromised version isn't pulled in.
+> warm frozen install · create-t3-app · 222 deps · macOS — [View benchmark](https://github.com/nubjs/nub/tree/main/tests/bench/install)
+
+- ⚡ Installs create-t3-app (222 deps) warm and frozen ~2.5× faster than `pnpm`
+- 🔄 Round-trips your existing lockfile — npm, pnpm, and Bun in place; Yarn read-only
+- 🧠 Infers the incumbent package manager and mirrors it — no migration, no prompt
+- 🗄️ Dedupes through a global content-addressed store, materialized by reflink/hardlink
+- 🐍 Accepts pnpm's flags with the same spelling and semantics, down to the workspace catalog
+- 🛡️ Treats build scripts as deny-by-default — an explicit allow or a vetted default-trust floor
+- 🦠 Blocks OSV malicious-package hits (`MAL-*`) — `ERR_NUB_MALICIOUS_PACKAGE`
+- 🔻 Refuses a weakened-provenance downgrade — `trustPolicy=no-downgrade`, `ERR_NUB_TRUST_DOWNGRADE`
+- ⏳ Holds back too-new releases — a `minimumReleaseAge` cooling window, 24h by default like pnpm
 
 These supply-chain defenses are on by default, no config required. Dependency build scripts run only on an explicit allow (`pnpm.onlyBuiltDependencies`, `trustedDependencies`, `nub approve-builds`) or when a curated default-trust floor vouches for the package under registry-provenance, advisory-vetting, and cooling-window gates; a skipped package is named with `WARN_NUB_IGNORED_BUILD_SCRIPTS`. An OSV malicious-package hit aborts the install, a weakened-provenance downgrade is refused, and too-new versions wait out the cooling window. See [Package manager](https://nubjs.com/docs/install).
 
-### Package meta-manager — `nub pm`
+## Package meta-manager — `nub pm`
 
 Corepack's job, in native Rust: provision and run the exact pnpm / npm / yarn your project pins:
 
@@ -166,13 +208,13 @@ nub pm use pnpm@9.15.4   # declare the project's PM, align the lockfile
 nub pm shim              # bare npm/pnpm/yarn route through the pin
 ```
 
-- 🎯 Reads the pin from `packageManager`, `devEngines`, or Yarn Berry's `yarnPath`.
-- 📥 Fetches that version integrity-verified, caches it, and runs it on the project's Node.
-- 🚫 Needs no `corepack enable` and no baked version table.
+- 🎯 Reads the pin from `packageManager`, `devEngines`, or Yarn Berry's `yarnPath`
+- 📥 Fetches that version integrity-verified, caches it, and runs it on the project's Node
+- 🚫 Needs no `corepack enable` and no baked version table
 
-See [Package meta-manager](https://nubjs.com/docs/pm).
+View the [full `nub pm` docs 👉](https://nubjs.com/docs/pm).
 
-### Node version manager — `nub node`
+## Node version manager — `nub node`
 
 Pin a version and the matching stock Node is fetched from nodejs.org, SHA-256-verified, cached, and run — in the same breath as your code, no second command:
 
@@ -192,78 +234,13 @@ nub node install 22     # also: ls, uninstall, pin, which
 nub node pin lts
 ```
 
-- 📌 Pins from `.node-version`, `.nvmrc`, or `engines.node`.
-- 📥 Fetches stock Node from nodejs.org, SHA-256-verified and cached.
-- 🤝 Provisions on demand, in the same command that runs your code.
-- 🧭 Adopts whatever `node` is on your `PATH` when there's no pin.
+- 📌 Pins from `.node-version`, `.nvmrc`, or `engines.node`
+- 📥 Fetches stock Node from nodejs.org, SHA-256-verified and cached
+- 🤝 Provisions on demand, in the same command that runs your code
+- 🧭 Falls back to whatever `node` is on your `PATH` when there's no pin
 
-See [Node manager](https://nubjs.com/docs/node).
+View the [full `nub node` docs 👉](https://nubjs.com/docs/node).
 
-### Watch mode — `nub watch`
-
-Restart-on-change driven by the resolved dependency graph plus the off-graph files that still invalidate a run — no glob list to maintain:
-
-```sh
-nub watch src/server.ts
-nub --watch src/server.ts   # same path
-```
-
-- 👀 Tracks the resolved dependency graph automatically.
-- 🧷 Also watches the off-graph invalidators — `.env*`, the `tsconfig.json` extends chain, `package.json`.
-- ⚙️ Runs on Node's own `--watch` engine, preserving output by default.
-
-See [Watch mode](https://nubjs.com/docs/watch).
-
-### Self-update — `nub upgrade`
-
-```sh
-nub upgrade             # update Nub itself to the latest release
-```
-
-- ⬆️ Updates the `nub` binary in place from the release channel.
-
-## Modern APIs, on the Node you have
-
-The file runner backfills modern web-platform and TC39 APIs per Node-version band — each polyfilled (feature-detected, native wins) or flag-injected. Every row maps to a band in nub's [feature matrix](crates/nub-core/src/node/feature_matrix.rs); the right column states where Nub's mitigation applies.
-
-| API | Mitigation | Where Nub backfills it |
-|---|---|---|
-| `Temporal` | Polyfilled (lazy global) | Every supported Node — no Node ships it |
-| `Worker` (browser-shape) | Polyfilled over `worker_threads` | Every supported Node — no Node ships it |
-| `reportError` | Polyfilled | Every supported Node — no Node ships it |
-| `URLPattern` | Polyfilled; native on Node 24+ | Below Node 24 |
-| `RegExp.escape` | Polyfilled; native on Node 24+ | Below Node 24 |
-| `Promise.try` | Polyfilled; native on Node 24+ | Below Node 24 |
-| `Float16Array` | Polyfilled; native on Node 24+ | Below Node 24 |
-| `Error.isError` | Polyfilled; native on Node 24+ | Below Node 24 |
-| `navigator.locks` | Polyfilled; native on Node 24.5+ | Below Node 24.5 |
-| `WebSocket` | Flag-injected; default-on Node 22+ | Node 20.10–21.x |
-| `EventSource` | Flag-injected | Node 20.18+ and 22.3+ |
-| `node:sqlite` | Flag-injected; unflagged 22.13+ / 23.4+ | Node 22.5–22.12 and 23.x |
-| `sessionStorage` / `localStorage` | Flag-injected (`--experimental-webstorage`) | Node 22.4–24.x |
-| `vm.Module` | Flag-injected (`--experimental-vm-modules`) | Across the supported floor |
-| `using` / `await using` | Transpiled | Every supported Node |
-
-Polyfills feature-detect and bow out when Node ships the API natively, so a backfill never shadows a real global. `sessionStorage` works out of the box; persistent `localStorage` is opt-in, since it needs a backing file. See [Runtime](https://nubjs.com/docs/runtime).
-
-## How it works
-
-Nub is **not a Node fork**. It's a Rust CLI that orchestrates your installed Node through Node's own extension surfaces — `module.registerHooks()` for TS transpilation and resolution, `--import` preloads for polyfills, V8 flag injection for unflagging experimental features, an oxc-based N-API addon for fast transpilation, and a per-invocation `PATH` shim so subprocesses stay augmented. Code targeting Node runs on Nub byte-for-byte.
-
-The `--node` flag is the escape hatch: it runs with zero augmentation — no load hook, no preload, no flag injection, no `.env` loading — on the project's *pinned* Node, which makes it the tool for differential debugging.
-
-```sh
-nub --node script.js     # the project's pinned Node, vanilla
-```
-
-There are no Nub-specific APIs to import or call, no `nub:*` module namespace, no `@nub/*` scope, and no `"nub"` config field you author. Drop Nub in, drop it out — your code never references it.
-
-## Requirements
-
-- **Node 18.19+.** 18.19–22.14 use the compatibility tier (async `module.register()` loader-worker); 22.15+ use the fast path (sync `module.registerHooks()`).
-- macOS (arm64, x64), Linux (x64, arm64), Windows (x64, arm64).
-
-Ambient TypeScript declarations for the modern globals ship via `@types/node` 25; `reportError` lives in `@nubjs/types`.
 
 ## License
 
