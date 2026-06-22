@@ -42,7 +42,6 @@ nub node install 22      # Node version manager
 nub upgrade              # self update
 ```
 
-
 One tool to run your files and scripts, install dependencies, and manage Node itself. No new runtime, no vendor-specific API surface, no lock-in.
 
 | Nub | Instead of |
@@ -271,26 +270,7 @@ View the [full `nub pm` docs 👉](https://nubjs.com/docs/pm).
 
 ## Node version manager — `nub node`
 
-Similar to Corepack shims, `nub` itself auto-installs Node versions as needed. When you run a file with `nub`, it infers the version of Node your project expects based on:
-
-- `NODE_EXECUTABLE` (env var override)
-- `package.json#devEngines`
-- `.node-version`
-- `.nvmrc`
-- `package.json#engines`
-- your `PATH` (fallback)
-
-This resolved Node version is auto-installed and cached for future runs.
-
-```sh
-$ echo 22 > .node-version
-$ nub hello.ts
-Using Node.js 22.15.0 (resolved from .node-version)
-Installed in 9.8s
-Hello world!
-```
-
-You can manage versions manually as needed.
+Though Node.js versions will generally be auto-installed and cached as needed, you can manage versions manually as well.
 
 ```sh
 $ nub node -h 
@@ -300,7 +280,7 @@ Usage: nub node <command>
 
 Commands:
   which                    print the resolved Node binary path (why → stderr)
-  install [<version>...]   provision version(s) into nub's cache (bare: the project pin)
+  install [<version>...]   provision version(s) into nub's cache
   ls                       list versions in nub's cache
   uninstall <version>      remove a version from nub's cache
   pin <version>            write the project's Node pin
