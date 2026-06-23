@@ -78,7 +78,7 @@ For GitHub Actions, use [`nubjs/setup-nub`](https://github.com/nubjs/setup-nub) 
 
 ## File runner — `nub <file>`
 
-Run a file. Supports `.js`, `.ts`, `.mjs`. `.cjs`, `.mts`. `.cts`, `.jsx`. `.tsx`. Flag-for-flag and var-for-var drop-in compatible for `node` (mostly via passthrough). 
+Run a file. Supports `.js`, `.ts`, `.mjs`, `.cjs`, `.mts`, `.cts`, `.jsx`, and `.tsx`. Flag-for-flag and var-for-var drop-in compatible with `node` (mostly via passthrough).
 
 ```sh
 nub index.ts             # TypeScript, JSX, no build step
@@ -107,7 +107,7 @@ It augments stock Node with some of Bun/Deno's best features:
 
 ### Node provisioning
 
-When you run a file with nub, it infers the version of Node your project expects and auto-installs it if neeed. It respects (in precedence order):
+When you run a file with nub, it infers the version of Node your project expects and auto-installs it if needed. It respects (in precedence order):
 
 - `NODE_EXECUTABLE` (override)
 - `package.json#devEngines`
