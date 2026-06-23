@@ -35,7 +35,7 @@
 // --dry-run is passed; pass --dry-run to preview.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -264,6 +264,76 @@ function touchesAube(pr: number): boolean {
   }
 }
 
+// ---- thread flip ------------------------------------------------------------
+
+// A status the board treats as already-closed — flipping one of these would
+// clobber a deliberate end-state, so we leave it alone.
+const CLOSED_STATUSES = new Set(["done", "dismissed"]);
+
+// On a CONFIRMED merge, flip the bound fray thread to `status: done` and stamp
+// today's date. The PR→thread binding is the queue entry's `thread` field — the
+// drift this fixes is merge-cascade merging a PR but leaving its thread at its
+// old status, so the board says "PR open" for a thread whose PR merged days ago.
+//
+// Surgical: parse the leading `---` frontmatter block and replace ONLY the
+// `status:`/`last_update:`/`status_text:` values + append one line to the
+// `## Status` section; never regenerate the body. Idempotent + safe: missing
+// file or already-closed status logs and skips, never errors, never clobbers.
+function flipThreadDone(thread: string, pr: number, dryRun: boolean): void {
+  const path = join(REPO_ROOT, ".fray", `${thread}.md`);
+  if (!existsSync(path)) {
+    console.log(`    thread "${thread}": file not found (${path}) — skipping flip.`);
+    return;
+  }
+  const raw = readFileSync(path, "utf8");
+
+  // Frontmatter is a leading `---\n…\n---` block. Bail (don't corrupt) if absent.
+  const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
+  if (!fmMatch) {
+    console.log(`    thread "${thread}": no frontmatter block — skipping flip.`);
+    return;
+  }
+  const fm = fmMatch[1];
+  const statusMatch = fm.match(/^status:[ \t]*(\S+)/m);
+  const current = statusMatch ? statusMatch[1].toLowerCase() : "";
+  if (CLOSED_STATUSES.has(current)) {
+    console.log(`    thread "${thread}": already status: ${current} — skipping flip (idempotent).`);
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const mergeLine = `MERGED via merge-cascade: PR #${pr} (${today}).`;
+
+  if (dryRun) {
+    console.log(`    thread "${thread}": would flip status: ${current || "?"} → done (${mergeLine})`);
+    return;
+  }
+
+  // Frontmatter edits, confined to the matched block so the body is untouched.
+  let newFm = fm;
+  newFm = statusMatch
+    ? newFm.replace(/^status:[ \t]*\S+.*$/m, "status: done")
+    : `status: done\n${newFm}`;
+  newFm = /^last_update:/m.test(newFm)
+    ? newFm.replace(/^last_update:[ \t]*.*$/m, `last_update: ${today}`)
+    : `${newFm}\nlast_update: ${today}`;
+  if (/^status_text:/m.test(newFm)) {
+    newFm = newFm.replace(/^status_text:[ \t]*.*$/m, `status_text: "${mergeLine}"`);
+  }
+
+  let body = raw.slice(fmMatch[0].length);
+  // Append the one merge line under the `## Status` heading if present; else
+  // tack a minimal `## Status` block on the end. One line only — no pile-up.
+  if (/^## Status\b/m.test(body)) {
+    body = body.replace(/^(## Status\b[^\n]*\n)/m, `$1${mergeLine}\n`);
+  } else {
+    body = `${body.replace(/\s*$/, "")}\n\n## Status\n${mergeLine}\n`;
+  }
+
+  writeFileSync(path, `---\n${newFm}\n---${body}`);
+  console.log(`    thread "${thread}": flipped status: ${current || "?"} → done.`);
+}
+
 // ---- main -------------------------------------------------------------------
 
 async function watchUntilTerminal(
@@ -320,6 +390,8 @@ async function main() {
       const d = mergeDecision(st);
       const label = d.verdict === "merge" ? "WOULD MERGE" : d.verdict === "block" ? "BLOCKED" : "WAIT";
       console.log(`  ${tag}: ${label} — ${d.reason}`);
+      // Preview the thread flip a real merge would perform.
+      if (d.verdict === "merge" && e.thread) flipThreadDone(e.thread, e.pr, true);
       continue;
     }
 
@@ -346,6 +418,18 @@ async function main() {
     console.log(`  ${tag}: green — squash-merging${aube ? " (bumps vendor/aube)" : ""}…`);
     gh(["pr", "merge", String(e.pr), "--repo", REPO, "--squash", "--admin"]);
     merged++;
+
+    // CONFIRMED merge — flip the bound fray thread to done (the queue entry's
+    // `thread` field is the binding). Fixes board-drift where a merged PR's
+    // thread was left at its old status. Best-effort: a flip hiccup must not
+    // mask the successful merge.
+    if (e.thread) {
+      try {
+        flipThreadDone(e.thread, e.pr, false);
+      } catch (err) {
+        console.log(`  ${tag}: merged, but thread flip failed: ${(err as Error).message.split("\n")[0]}`);
+      }
+    }
 
     // Fast-forward the shared tree; sync the submodule on a pin bump.
     try {
