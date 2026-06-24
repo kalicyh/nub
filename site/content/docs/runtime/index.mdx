@@ -38,17 +38,21 @@ The hard floor is **Node 18.19** — below it no loader-hook API can carry Nub's
 
 Nub selects the tier from your Node version. The fast tier needs sync `module.registerHooks()`, which Node added in v23.5.0 and backported to v22.15.0 — and never backported to the 20.x line. So the tier boundary lands differently per Node major:
 
-| Node line | Minimum Nub supports | Fast-tier floor | Tier |
-|---|---|---|---|
-| 18.x | 18.19 | — | Compatibility (no `registerHooks`) |
-| 20.x | all 20.x | — | Compatibility (`registerHooks` never backported to 20) |
-| 22.x | all 22.x | 22.15 | Fast at 22.15+, compatibility on 22.0–22.14 |
-| 23.x | all 23.x | 23.5 | Fast at 23.5+, compatibility on 23.0–23.4 |
-| 24.x | all 24.x | 24.0 | Fast (whole line) |
-| 25.x | all 25.x | 25.0 | Fast (whole line) |
-| 26.x | all 26.x | 26.0 | Fast (whole line) |
+| Node line | Minimum Nub supports | Fast-tier floor | Tier | Recommended |
+|---|---|---|---|---|
+| 18.x | 18.19 | — | Compatibility (no `registerHooks`) | |
+| 20.x | all 20.x | — | Compatibility (`registerHooks` never backported to 20) | |
+| 22.x | all 22.x | 22.15 | Fast at 22.15+, compatibility on 22.0–22.14 | ✓ at 22.15+ |
+| 23.x | all 23.x | 23.5 | Fast at 23.5+, compatibility on 23.0–23.4 | ✓ at 23.5+ |
+| 24.x | all 24.x | 24.0 | Fast (whole line) | ✓ |
+| 25.x | all 25.x | 25.0 | Fast (whole line) | ✓ |
+| 26.x | all 26.x | 26.0 | Fast (whole line) | ✓ **default** |
 
-A dash in the fast-tier column means that line has no fast-tier build — every patch runs in the compatibility tier. Both tiers are fully supported; nothing about your code changes between them.
+A dash in the fast-tier column means that line has no fast-tier build — every patch runs in the compatibility tier. Both tiers are fully supported; nothing about your code changes between them. A ✓ marks the fast-tier versions, recommended for the lowest startup overhead — the latest (Node 26) is the default.
+
+<Callout title="Why a fast-tier Node is recommended">
+The compatibility tier routes module loading through an async `module.register()` loader-worker, which costs about **1.4× slower cold start** than the fast tier — a fixed **~80 ms** startup overhead plus **~90 µs per module**. There's **zero runtime cost**: execution speed is identical, and the penalty is module loading only. The fast tier (22.15+, sync `module.registerHooks()`) has none of it.
+</Callout>
 
 ## Augmentations
 
