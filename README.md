@@ -5,11 +5,6 @@
     A fast all-in-one toolkit that augments Node.js instead of replacing it
   </p>
 </p>
-<br/>
-
-<p align="center">
-<a href="https://github.com/nubjs/nub" rel="nofollow"><img src="https://img.shields.io/github/stars/nubjs/nub" alt="stars"></a>
-</p>
 
 <div align="center">
   <a href="https://nubjs.com/docs">Docs</a>
@@ -17,8 +12,13 @@
   <a href="https://github.com/nubjs/nub">GitHub</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
   <a href="https://x.com/colinhacks">𝕏</a>
-  <br />
 </div>
+
+<p align="center">
+<a href="https://github.com/nubjs/nub" rel="nofollow"><img src="https://img.shields.io/github/stars/nubjs/nub" alt="stars"></a>
+</p>
+
+
 
 <br/>
 <br/>
