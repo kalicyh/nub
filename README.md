@@ -12,6 +12,7 @@
   <a href="https://github.com/nubjs/nub">GitHub</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
   <a href="https://x.com/colinhacks">𝕏</a>
+  <br/>
 </div>
 
 <p align="center">
