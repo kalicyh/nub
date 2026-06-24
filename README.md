@@ -94,8 +94,8 @@ It augments stock Node with some of Bun/Deno's best features:
 - 🆕 Modern syntax like `using` (downleveled in transpiler when needed)
 - 🔐 Automatic `.env*` loading — Next.js/Vite parity
 - 🗂️ Built-in loaders for common data formats — `.yaml`, `.toml`, `.jsonc`, `.json5`, `.txt`
-- 🌐 Polyfills for `Temporal`, `Worker`, `URLPattern`, `WebSocket`, `EventSource` (when needed)
-- 🔥 Unflags experimental features like `node:sqlite`, `vm.Module`, `localStorage`
+- 🌐 Polyfills for `Temporal`, `Worker`, `URLPattern` (when needed)
+- 🔥 Unflags experimental features like `node:sqlite`, `vm.Module`, `localStorage`, `WebSocket`, `EventSource`
 - ⚡ 2.9× faster startup than `tsx`
 
 > **How it works** — Nub takes advantage of Node extension surfaces that mostly didn't exist when Deno and Bun were built: 
