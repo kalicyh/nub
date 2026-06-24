@@ -608,14 +608,14 @@ checksum = "610a5acd306ec67f907abe5567859a3c693fb9886eb1f012ab8f2a47bef3db51"
 
 [[package]]
 name = "nub-cache-key"
-version = "0.1.14"
+version = "0.2.0"
 dependencies = [
  "blake3",
 ]
 
 [[package]]
 name = "nub-native"
-version = "0.1.14"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "json5",
