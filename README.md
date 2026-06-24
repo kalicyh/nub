@@ -16,7 +16,7 @@
 </div>
 
 <p align="center">
-<a href="https://github.com/nubjs/nub" rel="nofollow"><img src="https://img.shields.io/github/stars/nubjs/nub" alt="stars"></a>
+<a href="https://github.com/nubjs/nub" rel="nofollow"><img src="https://nubjs.com/stars.svg" alt="stars"></a>
 </p>
 
 
