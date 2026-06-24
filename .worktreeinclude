@@ -18,3 +18,14 @@
 # Read-only reference checkouts of other runtimes/tools (node, bun, pnpm, …).
 # Symlinked so worktree agents can Read/Grep them without a multi-GB copy.
 symlink .repos
+
+# fray orchestration control surface. Symlinked so a worktree-isolated sub-agent
+# can Edit its OWN .fray/<slug>.md thread (write-ownership) instead of the
+# orchestrator re-transcribing it. .fray/ is gitignored so it's absent in a fresh
+# worktree, and the Edit tool's sandbox blocks an absolute shared-tree path from
+# inside a worktree — but writes THROUGH this symlink land in the real shared file
+# (the sandbox check is path-prefix based and doesn't resolve symlinks).
+# NOTE: this covers SCRIPTED worktrees (new-worktree.ts). HARNESS-created
+# isolation:worktree worktrees do NOT run new-worktree.ts — those rely on the
+# dispatch-prompt step-0 `ln -s <abs-shared-root>/.fray .fray`.
+symlink .fray
