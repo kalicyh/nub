@@ -8,8 +8,6 @@
 <br/>
 
 <p align="center">
-<a href="https://opensource.org/licenses/MIT" rel="nofollow"><img src="https://img.shields.io/github/license/nubjs/nub" alt="License"></a>
-<a href="https://www.npmjs.com/package/@nubjs/nub" rel="nofollow"><img src="https://img.shields.io/npm/dw/@nubjs/nub.svg" alt="npm"></a>
 <a href="https://github.com/nubjs/nub" rel="nofollow"><img src="https://img.shields.io/github/stars/nubjs/nub" alt="stars"></a>
 </p>
 
