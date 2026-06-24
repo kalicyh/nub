@@ -49,6 +49,12 @@ Both `pnpm add -g @nubjs/nub` and `yarn global add @nubjs/nub` work equivalently
 brew install nubjs/tap/nub
 ```
 
+For containers, the official image `ghcr.io/nubjs/nub` is a `node` base with Nub layered on. See [Docker](/docs/docker):
+
+```dockerfile
+FROM ghcr.io/nubjs/nub
+```
+
 In CI, swap `actions/setup-node` for the [setup-nub action](/docs/setup-nub):
 
 ```diff
