@@ -2649,6 +2649,18 @@ fn run_workspace_target(
     let mut ran_count = 0usize;
     let bail = ws.bail;
 
+    // Share the discovered members read-only across all chunks/workers via a
+    // single refcount bump, instead of structurally cloning every chunk member
+    // into every worker (`num_workers × chunk_len` clones of a
+    // `WorkspacePackage`, whose `manifest` is a 10–50 KB `serde_json::Value`).
+    // Built ONCE here, above the chunk loop: topological chunking produces
+    // MANY chunks, so constructing it inside the loop would deep-clone the
+    // whole member set per chunk (`O(num_chunks × members.len())`). Both run
+    // paths index it by the global member index — the sequential branch
+    // directly (`&members[idx]`), each concurrent worker via an `Arc::clone`.
+    let members: std::sync::Arc<[nub_core::workspace::filter::WorkspacePackage]> =
+        std::sync::Arc::from(members.as_slice());
+
     for chunk in &chunks {
         if bail && total_failed > 0 {
             break;
@@ -2702,11 +2714,7 @@ fn run_workspace_target(
             let run_worker = |rx: Arc<std::sync::Mutex<mpsc::Receiver<usize>>>,
                               failed: Arc<AtomicUsize>,
                               ran: Arc<AtomicUsize>| {
-                let members_snapshot: Vec<(usize, nub_core::workspace::filter::WorkspacePackage)> =
-                    chunk
-                        .iter()
-                        .map(|&idx| (idx, members[idx].clone()))
-                        .collect();
+                let members = Arc::clone(&members);
                 let ws_root_buf = ws_root.to_path_buf();
                 let target = OwnedTarget::from(target);
                 let ignore_scripts = exec.ignore_scripts;
@@ -2729,9 +2737,7 @@ fn run_workspace_target(
                         if bail && failed.load(AtomicOrdering::Relaxed) > 0 {
                             continue;
                         }
-                        let Some((_, member)) =
-                            members_snapshot.iter().find(|(i, _)| *i == work_idx)
-                        else {
+                        let Some(member) = members.get(work_idx) else {
                             continue;
                         };
                         let leaf = MemberLeaf {
