@@ -11,6 +11,7 @@
 import { readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { collectDecisions } from './decisions.mjs';
 
 const STATUSES = ['todo', 'planned', 'enqueued', 'active', 'blocked', 'needs-decision', 'done', 'dismissed'];
 const PATCH_SEP = '===>>';
@@ -218,6 +219,22 @@ function main() {
   }
   if (patchOps.length) console.log(`  patches applied: ${patchOps.length}`);
   if (args.appends.length) console.log(`  appended: ${args.appends.length} block(s)`);
+
+  // Always surface the FULL decisions queue after ANY thread edit — so every fray
+  // edit-tool call prints the current decision write-ups straight to the terminal,
+  // not just a one-line summary of the thread that changed.
+  const decisions = collectDecisions();
+  console.log('');
+  if (decisions.length === 0) {
+    console.log('⚖ no pending decisions');
+  } else {
+    console.log(`⚖ ${decisions.length} decision(s) awaiting you:\n`);
+    decisions.forEach((d, i) => {
+      console.log(`[${d.slug}]`);
+      console.log(d.statusText || '(no statusText written up)');
+      if (i < decisions.length - 1) console.log('');
+    });
+  }
 }
 
 main();
