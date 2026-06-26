@@ -7,7 +7,8 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::{Shell, generate};
 
 /// Stable, branded error codes for nub-cli's own (non-engine) failure paths.
 /// The engine's `ERR_AUBE_*` codes are rewritten to `ERR_NUB_*` at presentation
@@ -635,6 +636,12 @@ pub enum Command {
         command: Option<String>,
     },
 
+    /// Generate shell completions.
+    Completion {
+        /// Shell to generate completions for.
+        shell: Shell,
+    },
+
     /// Manage Node versions (install / ls / uninstall / pin).
     ///
     /// `nub node <file>` is NOT a passthrough — to run a file use `nub <file>`.
@@ -907,7 +914,18 @@ struct ScriptExecOpts<'a> {
 /// Known subcommand names that clap should handle. `install`/`i`/`ci` route
 /// to the embedded aube install engine (src/pm_engine/).
 const SUBCOMMANDS: &[&str] = &[
-    "run", "watch", "exec", "upgrade", "help", "node", "pm", "agent", "install", "i", "ci",
+    "run",
+    "watch",
+    "exec",
+    "upgrade",
+    "help",
+    "completion",
+    "node",
+    "pm",
+    "agent",
+    "install",
+    "i",
+    "ci",
 ];
 
 /// `pnpm install <pkg>` (and the `i` alias) is the add-to-dependencies form —
@@ -1941,6 +1959,11 @@ fn dispatch_subcommand(rest: Vec<String>) -> Result<i32> {
             // the curated top-level page. Same router as `nub <cmd> -h`.
             let sub = command.as_deref().filter(|s| is_help_routable(s));
             run_help(sub, false);
+            Ok(0)
+        }
+        Some(Command::Completion { shell }) => {
+            let mut cmd = Cli::command();
+            generate(shell, &mut cmd, "nub", &mut std::io::stdout());
             Ok(0)
         }
         Some(Command::Install {
@@ -5201,6 +5224,7 @@ nub {v} — the all-in-one Node.js toolkit
   node                        manage Node versions (install / ls / uninstall / pin)
   pm                          manage the project's package manager (which / use / shim)
   upgrade                     upgrade nub itself
+  completion                  generate shell completions
 
 {footer}
 ",
@@ -5232,6 +5256,7 @@ nub {v} — the all-in-one Node.js toolkit
   nub [options] -e <code>  |  -p <code>  |  - (stdin)
   nub <command> [args...]
   nub help <command>
+  nub completion <shell>
 
 {commands}
   Run code:
@@ -5266,6 +5291,7 @@ nub {v} — the all-in-one Node.js toolkit
     node                     manage Node versions (install / ls / uninstall / pin)
     pm                       manage the project's package manager
     upgrade                  upgrade nub itself
+    completion               generate shell completions
 
   Store and config:
     store / cache            manage the content-addressable store
@@ -7949,7 +7975,16 @@ mod tests {
         // or alias) — the engine verbs (`add`, `why`, `rm`, …) previously fell
         // through to a silent exit.
         for word in [
-            "run", "install", "node", "pm", "agent", "add", "rm", "why", "publish",
+            "run",
+            "install",
+            "completion",
+            "node",
+            "pm",
+            "agent",
+            "add",
+            "rm",
+            "why",
+            "publish",
         ] {
             assert!(
                 is_help_routable(word),
@@ -7958,6 +7993,18 @@ mod tests {
         }
         // Unknown words fall through to the top-level page rather than erroring.
         assert!(!is_help_routable("definitely-not-a-command"));
+    }
+
+    #[test]
+    fn completion_command_generates_zsh_script() {
+        let mut cmd = Cli::command();
+        let mut out = Vec::new();
+        generate(Shell::Zsh, &mut cmd, "nub", &mut out);
+        let script = String::from_utf8(out).unwrap();
+
+        assert!(script.contains("#compdef nub"));
+        assert!(script.contains("completion"));
+        assert!(script.contains("--cwd"));
     }
 
     #[test]

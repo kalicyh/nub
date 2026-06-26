@@ -86,6 +86,7 @@ camino = "1"
 ctrlc = "3"
 libc = "0.2"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 dirs-next = "2"
 json5 = "0.4"
 jsonc-parser = { version = "0.24", features = ["serde"] }
